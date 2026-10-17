@@ -1,0 +1,27 @@
+# Render blueprint for the API (the dashboard is hosted on Netlify, the app ships as an APK).
+services:
+  - type: web
+    name: estateflow-api
+    runtime: docker
+    dockerContext: .
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /api/health
+    disk:
+      name: estateflow-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        sync: false   # e.g. https://starwiz-crm.netlify.app,https://*--starwiz-crm.netlify.app
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_NAME
+        value: Administrator
+      - key: MIN_APP_VERSION
+        value: 2.0.0
+      # Set APP_MODE=demo only on a separate demo service — it loads sample data into its own database.

@@ -1,0 +1,15 @@
+node_modules
+dist
+.env
+.env.*
+!.env.example
+*.log
+test-results/
+playwright-report/
+data/
+uploads/
+uploads-demo/
+uploads*/
+*.db
+*.db-wal
+*.db-shm

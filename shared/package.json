@@ -1,0 +1,15 @@
+{
+  "name": "@estateflow/shared",
+  "version": "2.0.0",
+  "private": true,
+  "description": "EstateFlow shared contract (types, schemas, helpers, API client). Identical copy in the backend, dashboard and app.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  }
+}
