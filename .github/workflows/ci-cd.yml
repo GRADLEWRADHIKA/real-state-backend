@@ -1,0 +1,110 @@
+# EstateFlow API: test, then deploy to the Lightsail server on every push to main.
+# Email alerts go to ALERT_EMAIL once the SMTP_USERNAME / SMTP_PASSWORD secrets exist.
+name: Backend CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: estate-backend-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ALERT_EMAIL: abhishek@thegradlew.com
+  SITE_URL: https://estateflow.3.231.34.80.sslip.io
+
+jobs:
+  ci:
+    name: Test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Tests
+        run: npm test
+      - name: Package release
+        if: github.event_name != 'pull_request'
+        run: |
+          rm -rf data/*.db* uploads uploads-demo
+          tar -czf ../api-release.tgz --exclude=.git --exclude=test --exclude=.github .
+          mv ../api-release.tgz . && ls -lh api-release.tgz
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: api-release
+          path: api-release.tgz
+          retention-days: 3
+
+  deploy:
+    name: Deploy to server
+    needs: ci
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: production
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: api-release
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
+          echo "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+      - name: Upload and deploy
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          scp -i ~/.ssh/deploy api-release.tgz ubuntu@$HOST:/tmp/estate-api-${{ github.sha }}.tgz
+          ssh -i ~/.ssh/deploy ubuntu@$HOST "/srv/estate/bin/deploy-api.sh /tmp/estate-api-${{ github.sha }}.tgz ${{ github.sha }}"
+      - name: Public health check
+        run: |
+          for i in $(seq 1 10); do curl -fsS "$SITE_URL/api/health" && exit 0; sleep 5; done
+          echo "Public health check failed" && exit 1
+
+  notify:
+    name: Email alert
+    needs: [ci, deploy]
+    if: always()
+    runs-on: ubuntu-24.04
+    env:
+      HAS_SMTP: ${{ secrets.SMTP_USERNAME != '' && secrets.SMTP_PASSWORD != '' }}
+      CI_RESULT: ${{ needs.ci.result }}
+      DEPLOY_RESULT: ${{ needs.deploy.result }}
+    steps:
+      - name: Decide status
+        id: s
+        run: |
+          if [ "$CI_RESULT" = failure ] || [ "$DEPLOY_RESULT" = failure ]; then echo "status=FAILED" >> $GITHUB_OUTPUT; echo "icon=❌" >> $GITHUB_OUTPUT;
+          elif [ "$DEPLOY_RESULT" = success ]; then echo "status=DEPLOYED" >> $GITHUB_OUTPUT; echo "icon=✅" >> $GITHUB_OUTPUT;
+          else echo "status=PASSED" >> $GITHUB_OUTPUT; echo "icon=✔️" >> $GITHUB_OUTPUT; fi
+      - name: Send email
+        if: env.HAS_SMTP == 'true' && (steps.s.outputs.status == 'FAILED' || steps.s.outputs.status == 'DEPLOYED')
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ vars.SMTP_HOST || 'smtp.gmail.com' }}
+          server_port: ${{ vars.SMTP_PORT || '465' }}
+          secure: true
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          from: EstateFlow CI <${{ secrets.SMTP_USERNAME }}>
+          to: ${{ env.ALERT_EMAIL }}
+          subject: "${{ steps.s.outputs.icon }} EstateFlow backend ${{ steps.s.outputs.status }} (${{ github.ref_name }})"
+          body: |
+            EstateFlow backend pipeline: ${{ steps.s.outputs.status }}
+            Commit: ${{ github.sha }} by ${{ github.actor }}
+            Message: ${{ github.event.head_commit.message }}
+            Test: ${{ needs.ci.result }} | Deploy: ${{ needs.deploy.result }}
+            Live: ${{ env.SITE_URL }}
+            Log: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      - name: Email not configured
+        if: env.HAS_SMTP != 'true'
+        run: echo "::warning::SMTP secrets are not set, so no email was sent."
