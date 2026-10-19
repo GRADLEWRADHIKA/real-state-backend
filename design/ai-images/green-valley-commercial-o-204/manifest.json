@@ -1,0 +1,12 @@
+{
+  "generator": 1,
+  "seed": 1,
+  "id": 27,
+  "views": [
+    "01-exterior.webp",
+    "02-street.webp",
+    "03-lobby.webp",
+    "04-interior.webp",
+    "05-floor_plan.webp"
+  ]
+}

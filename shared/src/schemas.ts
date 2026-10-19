@@ -341,8 +341,22 @@ export const propertyBody = z.object({
   description: zOptStr,
   amenities: z.array(z.string().trim().min(1)).max(40).default([]),
   assigned_to: zId.optional().nullable(),
+  slug: z.string().trim().toLowerCase().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'use lowercase letters, numbers and dashes').max(120).optional().nullable().or(z.literal('').transform(() => null)),
+  is_published: z.coerce.boolean().optional(),
+  /** Create only: render illustrated starter images in the background. */
+  generate_images: z.coerce.boolean().optional(),
 });
 export type PropertyInput = z.input<typeof propertyBody>;
+
+export const IMAGE_KINDS = ['exterior', 'aerial', 'street', 'lobby', 'living', 'bedroom', 'kitchen', 'interior', 'amenity', 'floor_plan', 'master_plan', 'other'] as const;
+export const propertyImageUpdate = z.object({
+  alt_text: z.string().trim().min(3, 'is required').max(240).optional(),
+  caption: z.string().trim().max(240).optional().nullable(),
+  kind: z.enum(IMAGE_KINDS).optional(),
+  is_ai_generated: z.coerce.boolean().optional(),
+});
+export const propertyImageOrder = z.object({ ids: z.array(zId).min(1).max(200) });
+export const generateImagesBody = z.object({ force: z.coerce.boolean().optional(), seed: z.coerce.number().int().min(0).max(1_000_000).optional() });
 
 // ─── Schedule ────────────────────────────────────────────────────────────
 export const visitBody = z.object({

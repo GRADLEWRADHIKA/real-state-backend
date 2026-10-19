@@ -22,14 +22,27 @@ try {
   process.exit(1);
 }
 
-const server = createApp().listen(config.port, () => {
-  log.info('EstateFlow API listening', { mode: config.mode, port: config.port, db: config.dbFile, version: config.version });
-});
+const app = createApp();
+const onListen = () => {
+  log.info('EstateFlow API listening', { mode: config.mode, host: config.host ?? 'default', port: config.port, db: config.dbFile, version: config.version });
+};
+const server = config.host ? app.listen(config.port, config.host, onListen) : app.listen(config.port, onListen);
 server.on('error', (err: NodeJS.ErrnoException) => {
   log.error(err.code === 'EADDRINUSE' ? `Port ${config.port} is already in use. Set PORT to a free port.` : 'server error', { error: err.message });
   process.exit(1);
 });
 startScheduler();
+
+// Demo galleries: illustrate every property that has no images yet (cached under design/ai-images,
+// so this is quick after the first run). Production never generates anything on its own.
+if (config.isDemo && process.env.DEMO_IMAGES !== '0') {
+  const { generateInBackground } = await import('./images/generate.js');
+  const ids = (await db.all<{ id: number }>('SELECT id FROM properties p WHERE NOT EXISTS (SELECT 1 FROM property_images i WHERE i.property_id = p.id) ORDER BY id')).map((r) => r.id);
+  if (ids.length) {
+    log.info('preparing demo property images in the background', { properties: ids.length });
+    void generateInBackground(ids, { log: (m) => log.info(m), onDone: () => realtime.change(['properties'], { staffOnly: true }) });
+  }
+}
 
 /** Graceful shutdown: stop accepting work, end SSE streams, let in-flight requests finish, then close the DB. */
 let stopping = false;

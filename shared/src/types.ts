@@ -205,6 +205,29 @@ export interface Property {
   interested_count?: number;
   customer_name?: string | null;
   cover_document_id?: number | null;
+  slug?: string | null;
+  is_published?: boolean | number;
+  cover?: PropertyImage | null;
+  images?: PropertyImage[];
+}
+
+export type ImageSize = 'thumb' | 'medium' | 'large';
+
+/** A gallery image; urls are API-relative (prefix the server URL) and signed when the property is unpublished. */
+export interface PropertyImage {
+  id: number;
+  property_id: number;
+  alt_text: string;
+  caption?: string | null;
+  kind: string;
+  is_cover: boolean;
+  is_ai_generated: boolean;
+  source: 'upload' | 'generated';
+  sort_order: number;
+  width?: number | null;
+  height?: number | null;
+  size?: number | null;
+  urls: Record<ImageSize, string>;
 }
 
 export interface Installment {
@@ -447,6 +470,7 @@ export interface ReceiptData {
 export interface PortalData {
   customer: Customer & { agent_name?: string | null; agent_phone?: string | null; agent_email?: string | null };
   property: (Property & { amenities: string[] }) | null;
+  gallery?: PropertyImage[];
   deal: Pick<Deal, 'code' | 'stage' | 'booking_date' | 'value' | 'booking_amount'> | null;
   installments: Installment[];
   transactions: Transaction[];

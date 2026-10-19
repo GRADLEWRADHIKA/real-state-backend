@@ -30,6 +30,7 @@ import userRoutes from './routes/users.js';
 import settingsRoutes from './routes/settings.js';
 import portalRoutes from './routes/portal.js';
 import searchRoutes from './routes/search.js';
+import { mediaRouter, publicMediaRouter } from './routes/media.js';
 
 const toMatcher = (o: string) => (o.includes('*') ? new RegExp(`^${o.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[a-z0-9-]+')}$`, 'i') : o);
 
@@ -55,23 +56,25 @@ export function createApp() {
     }),
   );
 
-  // Website lead capture is called from any site that holds the API key; no cookies are involved.
-  app.use('/api/public', cors({ origin: true, methods: ['POST'], allowedHeaders: ['Content-Type', 'X-Api-Key'], maxAge: 86400 }));
-
+  // Website lead capture (API key) may be called from any site; no cookies are involved.
+  app.use('/api/public/leads', cors({ origin: true, methods: ['POST'], allowedHeaders: ['Content-Type', 'X-Api-Key'], maxAge: 86400 }));
   // Auth uses bearer tokens, not cookies. Production allows only CORS_ORIGINS plus the Capacitor/localhost
   // origins; wildcards such as https://*.netlify.app are accepted. Demo mode also accepts LAN devices.
+  // The public website is part of the dashboard and the app, so /api/public/* follows the same list.
   const allowed = config.corsOrigins.map(toMatcher);
-  app.use(
-    cors({
-      origin: (origin, cb) => {
-        if (!origin || config.isDemo) return cb(null, true);
-        cb(null, allowed.some((a) => (typeof a === 'string' ? a === origin : a.test(origin))));
-      },
-      allowedHeaders: ['Content-Type', 'Authorization', CLIENT_HEADER, 'X-Request-Id'],
-      exposedHeaders: ['Content-Disposition', 'X-Request-Id', 'Retry-After'],
-      maxAge: 86400,
-    }),
-  );
+  const appCors = cors({
+    origin: (origin, cb) => {
+      if (!origin || config.isDemo) return cb(null, true);
+      cb(
+        null,
+        allowed.some((a) => (typeof a === 'string' ? a === origin : a.test(origin))),
+      );
+    },
+    allowedHeaders: ['Content-Type', 'Authorization', CLIENT_HEADER, 'X-Request-Id'],
+    exposedHeaders: ['Content-Disposition', 'X-Request-Id', 'Retry-After'],
+    maxAge: 86400,
+  });
+  app.use((req, res, next) => (req.path.startsWith('/api/public/leads') ? next() : appCors(req, res, next)));
   app.use(express.json({ limit: '1mb' }));
 
   /** Liveness + readiness: touches the database so a broken volume shows up as unhealthy. */
@@ -83,15 +86,15 @@ export function createApp() {
       res.status(503).json({ ok: false, db: 'unavailable' });
     }
   });
-  app.get('/api/meta', (_req, res) =>
-    res.json({ app: 'EstateFlow CRM', mode: config.mode, version: config.version, minAppVersion: config.minAppVersion, serverTime: new Date().toISOString() }),
-  );
+  app.get('/api/meta', (_req, res) => res.json({ app: 'EstateFlow CRM', mode: config.mode, version: config.version, minAppVersion: config.minAppVersion, serverTime: new Date().toISOString() }));
 
   const apiLimiter = rateLimit({ name: 'api', windowMs: config.rateLimit.windowMs, max: () => config.rateLimit.api });
   app.use('/api', apiLimiter);
   app.use('/api', auditAndBroadcast);
   app.use('/api/auth', authRoutes);
+  app.use('/api/public/media', publicMediaRouter);
   app.use('/api/public', publicRoutes);
+  app.use('/api/media', mediaRouter);
 
   const api = express.Router();
   api.use(authenticate);

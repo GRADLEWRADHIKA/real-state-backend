@@ -46,7 +46,7 @@ Check it in a browser: http://localhost:7341/api/health shows `{"ok":true,"db":"
 2. In `.env`, fill in:
    - `JWT_SECRET`: a long random string of at least 32 characters.
    - `ADMIN_EMAIL`, `ADMIN_PASSWORD` and `ADMIN_NAME`: the first administrator, created on the first start.
-   - `CORS_ORIGINS`: the address(es) where the dashboard is hosted, e.g. `https://starwiz-crm.netlify.app`.
+   - `CORS_ORIGINS`: the address(es) where the dashboard is hosted, e.g. `https://starwiz-crm.netlify.app`. The public website is part of the dashboard and the app, so a website domain pointed at the dashboard goes in this list too.
 3. Run `npm start`.
 
 The database and uploads are saved in `data/` and `uploads/`, and these must be backed up. Production starts empty and refuses a database containing demo data.

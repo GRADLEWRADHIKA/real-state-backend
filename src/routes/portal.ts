@@ -11,6 +11,7 @@ import { customerFinancials, syncInstallmentStatuses } from '../services/payment
 import { getSettings } from '../services/settings.js';
 import { upload, verifyUploadedFile } from '../services/documents.js';
 import { realtime } from '../services/realtime.js';
+import { withImages } from '../images/store.js';
 
 /** The customer's own view: everything is keyed on the customer record linked to the login. */
 const r = Router();
@@ -54,9 +55,12 @@ r.get('/', async (req, res) => {
     db.all(`${REQUEST_SELECT} WHERE r.customer_id = ? ORDER BY r.created_at DESC LIMIT 50`, [cid]),
   ]);
   if (property?.amenities) property.amenities = JSON.parse(property.amenities);
+  // Only the customer's own property: its gallery, with links signed for this customer.
+  const withGallery = property ? (await withImages([property]))[0] : null;
   res.json({
     customer,
-    property,
+    property: withGallery,
+    gallery: withGallery?.images ?? [],
     deal: deal ?? null,
     installments,
     transactions,

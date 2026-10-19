@@ -12,6 +12,7 @@ import { log } from '../logger.js';
 import { addDays, financialYear, humanDate, today } from '../utils/dates.js';
 import { installmentStatus, syncInstallmentStatuses } from '../services/payments.js';
 import { normalizePhone } from '@estateflow/shared';
+import { slugify } from '../images/slug.js';
 
 const T = today();
 const D = (n: number) => addDays(T, n);
@@ -320,6 +321,8 @@ async function seedDemo() {
       floor: p.floor ?? null, bedrooms: p.bed ?? null, bathrooms: p.bath ?? null, area_sqft: p.area, price: p.price, status: p.status, facing: p.facing,
       furnishing: p.furnishing ?? null, parking: p.parking ?? 0, possession: POSSESSION[p.project], construction_stage: STAGE_FOR[p.project], description: p.desc, amenities: AMENITY_FOR[p.project],
       assigned_to: uid(p.agent), created_at: DT(-420, '10:00'), updated_at: DT(-30, '10:00'),
+      // Every demo unit has a web address; sold-out units stay off the website.
+      slug: slugify(`${p.project} ${p.unit}`), is_published: p.status !== 'Sold',
     });
   }
   const prop = (k: string) => PROPERTIES.find((p) => p.key === k)!;

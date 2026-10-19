@@ -1,5 +1,12 @@
 import { Router } from 'express';
-import { propertyBody, propertyListQuery } from '@estateflow/shared';
+import multer from 'multer';
+import path from 'node:path';
+import { generateImagesBody, propertyBody, propertyImageOrder, propertyImageUpdate, propertyListQuery } from '@estateflow/shared';
+import { config } from '../config.js';
+import { log } from '../logger.js';
+import { generateInBackground, generateForProperty, isGenerating } from '../images/generate.js';
+import { uniqueSlug } from '../images/slug.js';
+import { IMAGE_EXT, addImage, deleteImages, removePropertyImageFiles, reorderImages, setCover, sniffImage, toDto, withImages } from '../images/store.js';
 import { db } from '../db/index.js';
 import { adminAppReadOnly, authorize } from '../middleware/auth.js';
 import { HttpError, idParam, likeParam, notFound, orderBy, pageMeta, paging, parse, parseQuery } from '../utils/http.js';
@@ -18,7 +25,25 @@ const SELECT = `
     (SELECT d.id FROM documents d WHERE d.entity_type = 'property' AND d.entity_id = p.id AND d.mime LIKE 'image/%' ORDER BY d.created_at LIMIT 1) AS cover_document_id
   FROM properties p LEFT JOIN users u ON u.id = p.assigned_to`;
 
-const out = (p: any) => (p ? { ...p, amenities: p.amenities ? JSON.parse(p.amenities) : [] } : p);
+const out = (p: any) => (p ? { ...p, amenities: p.amenities ? JSON.parse(p.amenities) : [], is_published: !!p.is_published } : p);
+const withGallery = async (p: any) => (p ? (await withImages([out(p)]))[0] : p);
+
+async function slugFor(base: string, exceptId = 0) {
+  const taken = new Set((await db.all<{ slug: string }>('SELECT slug FROM properties WHERE slug IS NOT NULL AND id != ?', [exceptId])).map((r) => r.slug));
+  return uniqueSlug(base, taken);
+}
+
+/** Gallery uploads: memory storage, size limit and a JPEG/PNG/WebP allowlist (content is sniffed again later). */
+const imageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: config.uploadMaxBytes, files: 20, fields: 10 },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (IMAGE_EXT[file.mimetype]?.includes(ext)) cb(null, true);
+    else cb(new HttpError(415, `${file.originalname}: only JPG, PNG or WebP images can be added to the gallery`));
+  },
+});
+const realtimeProps = () => realtime.change(['properties'], { staffOnly: true });
 const TYPE_ORDER = "CASE p.type WHEN 'Villa' THEN 1 WHEN 'Plot' THEN 2 WHEN 'Apartment' THEN 3 ELSE 4 END, p.project, p.unit_number";
 
 r.get('/', async (req, res) => {
@@ -48,11 +73,11 @@ r.get('/', async (req, res) => {
        MIN(price) AS min_price, MAX(price) AS max_price
      FROM properties GROUP BY project ORDER BY project`,
   );
-  res.json({ data: rows.map(out), meta: pageMeta(total, p, { summary, projects }) });
+  res.json({ data: await withImages(rows.map(out)), meta: pageMeta(total, p, { summary, projects }) });
 });
 
 r.get('/:id', async (req, res) => {
-  const p = out(await db.get(`${SELECT} WHERE p.id = ?`, [idParam(req)]));
+  const p = await withGallery(await db.get(`${SELECT} WHERE p.id = ?`, [idParam(req)]));
   if (!p) throw notFound('Property');
   const sales = req.user.role === 'sales';
   const scoped = (col: string) => (sales ? ` AND ${col} = ?` : '');
@@ -84,22 +109,29 @@ r.get('/:id', async (req, res) => {
   ]);
   // A sales executive sees that a unit is booked, but only their own customer's details.
   const owner = customer && sales && customer.assigned_to !== req.user.id ? { status: customer.status, booking_date: customer.booking_date, deal_stage: customer.deal_stage } : customer;
-  res.json({ ...p, leads, customer: owner, visits, documents, gallery: documents.filter((d: any) => String(d.mime).startsWith('image/')) });
+  res.json({ ...p, leads, customer: owner, visits, documents, gallery: documents.filter((d: any) => String(d.mime).startsWith('image/')), generating: isGenerating(p.id) });
 });
 
 r.post('/', authorize('admin', 'manager'), async (req, res) => {
-  const data = parse(propertyBody, req.body);
+  const { generate_images, ...data } = parse(propertyBody, req.body);
   const dupe = await db.get('SELECT id FROM properties WHERE project = ? AND unit_number = ?', [data.project, data.unit_number]);
   if (dupe) throw new HttpError(409, `Unit ${data.unit_number} already exists in ${data.project}`);
-  const id = await insertWithCode('properties', { ...data, created_at: nowIso(), updated_at: nowIso() });
-  res.status(201).json(out(await db.get(`${SELECT} WHERE p.id = ?`, [id])));
+  if (data.slug && (await db.get('SELECT id FROM properties WHERE slug = ?', [data.slug]))) throw new HttpError(409, `The web address ${data.slug} is already used by another property`);
+  const slug = data.slug || (await slugFor(`${data.project} ${data.unit_number}`));
+  const id = await insertWithCode('properties', { ...data, slug, created_at: nowIso(), updated_at: nowIso() });
+  if (generate_images) generateInBackground([id], { log: (m) => log.info(m), onDone: realtimeProps });
+  res.status(201).json(await withGallery(await db.get(`${SELECT} WHERE p.id = ?`, [id])));
 });
 
 r.put('/:id', authorize('admin', 'manager'), async (req, res) => {
   const id = idParam(req);
   const existing = await db.get('SELECT * FROM properties WHERE id = ?', [id]);
   if (!existing) throw notFound('Property');
-  const data = parse(propertyBody.partial(), req.body);
+  const { generate_images: _ignored, ...data } = parse(propertyBody.partial(), req.body);
+  if (data.slug && data.slug !== existing.slug && (await db.get('SELECT id FROM properties WHERE slug = ? AND id != ?', [data.slug, id]))) {
+    throw new HttpError(409, `The web address ${data.slug} is already used by another property`);
+  }
+  if (data.slug === null) delete data.slug;
   if (data.status && ['Available', 'Reserved'].includes(data.status)) {
     const owner = await db.get("SELECT name FROM customers WHERE property_id = ? AND status != 'Cancelled'", [id]);
     if (owner) throw new HttpError(409, `This unit is booked by ${owner.name}. Cancel the booking before marking it ${data.status.toLowerCase()}.`);
@@ -118,7 +150,7 @@ r.put('/:id', authorize('admin', 'manager'), async (req, res) => {
       realtime.change(['portal'], { userIds: [portal.id] });
     }
   }
-  res.json(out(await db.get(`${SELECT} WHERE p.id = ?`, [id])));
+  res.json(await withGallery(await db.get(`${SELECT} WHERE p.id = ?`, [id])));
 });
 
 r.delete('/:id', authorize('admin'), async (req, res) => {
@@ -126,7 +158,89 @@ r.delete('/:id', authorize('admin'), async (req, res) => {
   const owner = await db.get("SELECT id FROM customers WHERE property_id = ? AND status != 'Cancelled'", [id]);
   if (owner) throw new HttpError(409, 'Booked or sold units cannot be deleted');
   if (!(await db.run('DELETE FROM properties WHERE id = ?', [id])).changes) throw notFound('Property');
+  await removePropertyImageFiles(id);
   res.json({ ok: true, id });
+});
+
+// ─── Gallery ─────────────────────────────────────────────────────────────
+async function requireProperty(id: number) {
+  const p = await db.get<{ id: number; name: string; type: string; city: string; is_published: number }>('SELECT id, name, type, city, is_published FROM properties WHERE id = ?', [id]);
+  if (!p) throw notFound('Property');
+  return p;
+}
+const gallery = async (id: number, published: number) =>
+  (await db.all('SELECT * FROM property_images WHERE property_id = ? ORDER BY sort_order, id', [id])).map((row) => toDto(row, !!published));
+
+r.get('/:id/images', async (req, res) => {
+  const p = await requireProperty(idParam(req));
+  res.json({ data: await gallery(p.id, p.is_published), generating: isGenerating(p.id) });
+});
+
+/** Multi-file upload: each file succeeds or fails on its own; the response lists both. */
+r.post('/:id/images', authorize('admin', 'manager'), imageUpload.array('files', 20), async (req, res) => {
+  const p = await requireProperty(idParam(req));
+  const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+  if (!files.length) throw new HttpError(422, 'files: Choose at least one image');
+  const created: number[] = [];
+  const errors: { file: string; error: string }[] = [];
+  for (const f of files) {
+    try {
+      const sniffed = sniffImage(f.buffer);
+      if (!sniffed || sniffed !== f.mimetype) throw new HttpError(415, 'The file content is not a JPG, PNG or WebP image');
+      const title = path.basename(f.originalname, path.extname(f.originalname)).replace(/[-_]+/g, ' ').trim();
+      created.push(await addImage(p.id, { buffer: f.buffer, mime: sniffed, alt_text: `${p.name} in ${p.city}${title ? `: ${title}` : ''}`.slice(0, 240), kind: 'other', source: 'upload' }));
+    } catch (err) {
+      errors.push({ file: f.originalname, error: err instanceof Error ? err.message : 'Upload failed' });
+    }
+  }
+  realtimeProps();
+  res.status(created.length ? 201 : 422).json({ created: created.length, errors, data: await gallery(p.id, p.is_published) });
+});
+
+r.patch('/:id/images/:imageId', authorize('admin', 'manager'), async (req, res) => {
+  const p = await requireProperty(idParam(req));
+  const imageId = idParam(req, 'imageId');
+  const data = parse(propertyImageUpdate, req.body);
+  if (!(await db.update('property_images', imageId, data)) && Object.keys(data).length) throw notFound('Image');
+  const row = await db.get('SELECT * FROM property_images WHERE id = ? AND property_id = ?', [imageId, p.id]);
+  if (!row) throw notFound('Image');
+  realtimeProps();
+  res.json(toDto(row, !!p.is_published));
+});
+
+r.put('/:id/images/order', authorize('admin', 'manager'), async (req, res) => {
+  const p = await requireProperty(idParam(req));
+  await reorderImages(p.id, parse(propertyImageOrder, req.body).ids);
+  realtimeProps();
+  res.json({ data: await gallery(p.id, p.is_published) });
+});
+
+r.post('/:id/images/:imageId/cover', authorize('admin', 'manager'), async (req, res) => {
+  const p = await requireProperty(idParam(req));
+  await setCover(p.id, idParam(req, 'imageId'));
+  realtimeProps();
+  res.json({ data: await gallery(p.id, p.is_published) });
+});
+
+r.delete('/:id/images/:imageId', authorize('admin', 'manager'), async (req, res) => {
+  const p = await requireProperty(idParam(req));
+  if (!(await deleteImages(p.id, 'id = ?', [idParam(req, 'imageId')]))) throw notFound('Image');
+  realtimeProps();
+  res.json({ data: await gallery(p.id, p.is_published) });
+});
+
+/** Renders illustrated images for this property. Runs in the background unless ?wait=1. */
+r.post('/:id/generate-images', authorize('admin', 'manager'), async (req, res) => {
+  const p = await requireProperty(idParam(req));
+  const body = parse(generateImagesBody, req.body ?? {});
+  const opts = { force: body.force ?? true, seed: body.seed, log: (m: string) => log.info(m) };
+  if (req.query.wait === '1') {
+    const result = await generateForProperty(p.id, opts);
+    realtimeProps();
+    return res.json({ ...result, data: await gallery(p.id, p.is_published) });
+  }
+  void generateInBackground([p.id], { ...opts, onDone: realtimeProps });
+  res.status(202).json({ status: 'started' });
 });
 
 export default r;

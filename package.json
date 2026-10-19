@@ -11,7 +11,10 @@
     "migrate": "tsx src/db/migrate-cli.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "docs:api": "tsx scripts/docs-api.ts"
+    "docs:api": "tsx scripts/docs-api.ts",
+    "images:generate": "tsx scripts/images.ts",
+    "images:import": "tsx scripts/images.ts --import",
+    "images:sheet": "tsx scripts/contact-sheet.ts"
   },
   "license": "ISC",
   "type": "module",
@@ -25,6 +28,7 @@
     "jsonwebtoken": "^9.0.3",
     "jspdf": "^4.2.1",
     "multer": "^2.4.0",
+    "sharp": "^0.35.5",
     "tsx": "^4.23.15",
     "zod": "^4.6.5"
   },

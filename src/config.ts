@@ -38,6 +38,8 @@ export const config = {
   /** Oldest app build allowed to talk to this API; older builds show "update required". */
   minAppVersion: process.env.MIN_APP_VERSION?.trim() || '2.0.0',
   port: int(process.env.PORT, 7341),
+  /** Demo/dev listens on every interface so phones and the Android emulator (10.0.2.2) can connect. */
+  host: process.env.HOST || (isDemo ? '0.0.0.0' : undefined),
   dbFile: path.resolve(
     root,
     isDemo ? process.env.DEMO_DATABASE_FILE || 'data/estateflow-demo.db' : process.env.DATABASE_FILE || 'data/estateflow.db',
@@ -55,6 +57,8 @@ export const config = {
     api: int(process.env.RATE_LIMIT_API, 600),
     auth: int(process.env.RATE_LIMIT_AUTH, 20),
     publicLeads: int(process.env.RATE_LIMIT_PUBLIC_LEADS, 30),
+    publicForms: int(process.env.RATE_LIMIT_PUBLIC_FORMS, 10),
+    publicRead: int(process.env.RATE_LIMIT_PUBLIC_READ, 300),
   },
   schedulerIntervalMs: int(process.env.SCHEDULER_INTERVAL_MS, 5 * 60_000),
   logLevel: (process.env.LOG_LEVEL || (isTest ? 'silent' : 'info')) as 'debug' | 'info' | 'warn' | 'error' | 'silent',
