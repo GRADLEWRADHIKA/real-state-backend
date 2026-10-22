@@ -39,6 +39,12 @@ Website lead capture. Authenticated by the `X-Api-Key` generated in Settings →
 | Method | Path | Roles | Body | Query | Notes |
 | --- | --- | --- | --- | --- | --- |
 | POST | `/api/public/leads` | (none) | [publicLeadBody](#publicleadbody) |  |  |
+| GET | `/api/public/properties` | (none) |  |  |  |
+| GET | `/api/public/properties/:slug` | (none) |  |  |  |
+| GET | `/api/public/company` | (none) |  |  |  |
+| GET | `/api/public/form-token` | (none) |  |  |  |
+| POST | `/api/public/enquiries` | (none) |  |  |  |
+| POST | `/api/public/site-visit-requests` | (none) |  |  |  |
 
 ## events
 
@@ -54,6 +60,7 @@ KPI dashboard and the field app's "my day" view.
 
 | Method | Path | Roles | Body | Query | Notes |
 | --- | --- | --- | --- | --- | --- |
+| GET | `/api/dashboard/overview` | admin, manager, sales, accounts |  |  |  |
 | GET | `/api/dashboard/today` | admin, manager, sales, accounts |  |  |  |
 | GET | `/api/dashboard` | admin, manager, sales |  |  |  |
 
@@ -113,10 +120,18 @@ Inventory.
 | Method | Path | Roles | Body | Query | Notes |
 | --- | --- | --- | --- | --- | --- |
 | GET | `/api/properties` | admin, manager, sales, accounts |  | [propertyListQuery](#propertylistquery) |  |
+| GET | `/api/properties/map` | admin, manager, sales, accounts |  |  |  |
 | GET | `/api/properties/:id` | admin, manager, sales, accounts |  |  |  |
 | POST | `/api/properties` | admin, manager | [propertyBody](#propertybody) |  | admin read-only in app |
 | PUT | `/api/properties/:id` | admin, manager | [propertyBody](#propertybody) |  | admin read-only in app |
 | DELETE | `/api/properties/:id` | admin |  |  | admin read-only in app |
+| GET | `/api/properties/:id/images` | admin, manager, sales, accounts |  |  |  |
+| POST | `/api/properties/:id/images` | admin, manager |  |  | admin read-only in app, multipart: file |
+| PATCH | `/api/properties/:id/images/:imageId` | admin, manager |  |  | admin read-only in app |
+| PUT | `/api/properties/:id/images/order` | admin, manager |  |  | admin read-only in app |
+| POST | `/api/properties/:id/images/:imageId/cover` | admin, manager |  |  | admin read-only in app |
+| DELETE | `/api/properties/:id/images/:imageId` | admin, manager |  |  | admin read-only in app |
+| POST | `/api/properties/:id/generate-images` | admin, manager |  |  | admin read-only in app |
 
 ## site-visits
 
@@ -280,6 +295,59 @@ Global search.
 | --- | --- | --- | --- | --- | --- |
 | GET | `/api/search` | admin, manager, sales, accounts |  |  |  |
 
+## brokers
+
+Brokers (channel partners) and the commission worked out automatically on their customers’ payments.
+
+| Method | Path | Roles | Body | Query | Notes |
+| --- | --- | --- | --- | --- | --- |
+| GET | `/api/brokers` | admin, manager, sales, accounts |  |  |  |
+| GET | `/api/brokers/commissions` | admin, manager, accounts |  |  |  |
+| POST | `/api/brokers/commissions/:id/pay` | admin, accounts |  |  | admin read-only in app |
+| GET | `/api/brokers/:id` | admin, manager, accounts |  |  |  |
+| POST | `/api/brokers` | admin, manager |  |  | admin read-only in app |
+| PUT | `/api/brokers/:id` | admin, manager |  |  | admin read-only in app |
+
+## expenses
+
+Site and office expenses, with CSV export.
+
+| Method | Path | Roles | Body | Query | Notes |
+| --- | --- | --- | --- | --- | --- |
+| GET | `/api/expenses` | admin, accounts |  |  |  |
+| GET | `/api/expenses/export.csv` | admin, accounts |  |  |  |
+| POST | `/api/expenses` | admin, accounts |  |  | admin read-only in app |
+| PUT | `/api/expenses/:id` | admin, accounts |  |  | admin read-only in app |
+| DELETE | `/api/expenses/:id` | admin, accounts |  |  | admin read-only in app |
+
+## staff
+
+Staff salary (due, paid, left), attendance (self check-in/out and marking) and monthly sales targets.
+
+| Method | Path | Roles | Body | Query | Notes |
+| --- | --- | --- | --- | --- | --- |
+| GET | `/api/staff/salaries` | admin, accounts |  |  |  |
+| POST | `/api/staff/salary-payments` | admin, accounts |  |  | admin read-only in app |
+| DELETE | `/api/staff/salary-payments/:id` | admin, accounts |  |  | admin read-only in app |
+| PUT | `/api/staff/:id/pay` | admin, manager, sales, accounts |  |  | admin read-only in app |
+| GET | `/api/staff/targets` | admin, manager, sales, accounts |  |  |  |
+| GET | `/api/staff/attendance` | admin, manager, accounts |  |  |  |
+| GET | `/api/staff/attendance/month` | admin, manager, accounts |  |  |  |
+| POST | `/api/staff/attendance` | admin, manager, accounts |  |  | admin read-only in app |
+| GET | `/api/staff/attendance/me` | admin, manager, sales, accounts |  |  |  |
+| POST | `/api/staff/attendance/check-in` | admin, manager, sales, accounts |  |  | admin read-only in app |
+| POST | `/api/staff/attendance/check-out` | admin, manager, sales, accounts |  |  | admin read-only in app |
+
+## backups
+
+Automatic daily database backups: list, back up now, download (admin, dashboard only).
+
+| Method | Path | Roles | Body | Query | Notes |
+| --- | --- | --- | --- | --- | --- |
+| GET | `/api/backups` | admin |  |  | dashboard only |
+| POST | `/api/backups` | admin |  |  | dashboard only |
+| GET | `/api/backups/:name` | admin |  |  | dashboard only |
+
 ## Schemas
 
 ### auditListQuery
@@ -382,6 +450,8 @@ Global search.
 | `project` | string |  |
 | `agent` | integer |  |
 | `payment` | "overdue" \| "clear" \| string |  |
+| `registry` | "Not done" \| "Date fixed" \| "Done" \| "pending" \| "due15" \| string |  |
+| `broker` | integer |  |
 
 ### customerNoteBody
 
@@ -419,6 +489,14 @@ Global search.
 | `pan` | string |  |
 | `aadhaar` | string |  |
 | `assigned_to` | integer \| null |  |
+| `nominee_name` | string \| null |  |
+| `nominee_relation` | string \| null |  |
+| `nominee_phone` | string |  |
+| `nominee_aadhaar` | string |  |
+| `registry_status` | "Not done" \| "Date fixed" \| "Done" |  |
+| `registry_date` | string |  |
+| `registry_number` | string \| null |  |
+| `broker_id` | string |  |
 
 ### dealListQuery
 
@@ -691,6 +769,8 @@ Global search.
 | `city` | string | yes |
 | `type` | "Apartment" \| "Villa" \| "Plot" \| "Commercial" \| "Office" \| "Shop" | yes |
 | `unit_number` | string | yes |
+| `block` | string \| null |  |
+| `rate_per_sqft` | string |  |
 | `tower` | string \| null |  |
 | `floor` | integer \| null |  |
 | `bedrooms` | integer \| null |  |
@@ -707,6 +787,9 @@ Global search.
 | `description` | string \| null |  |
 | `amenities` | array |  |
 | `assigned_to` | integer \| null |  |
+| `slug` | string |  |
+| `is_published` | boolean |  |
+| `generate_images` | boolean |  |
 
 ### propertyListQuery
 
@@ -726,6 +809,7 @@ Global search.
 | `price_max` | number |  |
 | `bedrooms` | number |  |
 | `available` | "0" \| "1" |  |
+| `block` | string |  |
 
 ### publicLeadBody
 

@@ -5,6 +5,7 @@ import { financialYear, nowIso, today } from '../utils/dates.js';
 import { logActivity, notifyRoles, notifyUsers } from './activity.js';
 import { portalUserFor } from './notifications.js';
 import { realtime } from './realtime.js';
+import { syncCommissionForTransaction } from './commission.js';
 import type { AuthUser } from '../middleware/auth.js';
 
 export const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
@@ -175,6 +176,7 @@ export async function recordPayment(input: PaymentInput, user: AuthUser) {
       });
     }
     if (portalUser) realtime.change(['portal', 'finance'], { userIds: [portalUser.id] });
+    await syncCommissionForTransaction(id);
     return id;
   });
 }
@@ -204,6 +206,7 @@ export async function setTransactionStatus(id: number, status: 'Completed' | 'Pe
       description: `${t.code} · ${inr(t.amount)} via ${t.method}`,
       user_id: user.id,
     });
+    await syncCommissionForTransaction(id);
     const portal = await portalUserFor(t.customer_id);
     if (portal) realtime.change(['portal', 'finance'], { userIds: [portal.id] });
     if (status === 'Failed') {

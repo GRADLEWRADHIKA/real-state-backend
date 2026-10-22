@@ -7,6 +7,9 @@ import type {
   InstallmentStatus,
   LeadPriority,
   PropertyStatus,
+  RegistryStatus,
+  ExpenseCategory,
+  AttendanceStatus,
   Role,
   TaskPriority,
   TaskStatus,
@@ -47,6 +50,8 @@ export interface User {
   phone?: string | null;
   title?: string | null;
   status: 'Active' | 'Inactive';
+  monthly_salary?: number;
+  monthly_target?: number;
   customer_id?: number | null;
   customer_name?: string | null;
   leads_count?: number;
@@ -185,6 +190,8 @@ export interface Property {
   city: string;
   type: string;
   unit_number: string;
+  block?: string | null;
+  rate_per_sqft?: number | null;
   tower?: string | null;
   floor?: number | null;
   bedrooms?: number | null;
@@ -312,6 +319,141 @@ export interface Customer {
   cancel_reason?: string | null;
   assigned_to?: number | null;
   agent_name?: string | null;
+  property_block?: string | null;
+  nominee_name?: string | null;
+  nominee_relation?: string | null;
+  nominee_phone?: string | null;
+  nominee_aadhaar?: string | null;
+  registry_status?: RegistryStatus;
+  registry_date?: string | null;
+  registry_number?: string | null;
+  broker_id?: number | null;
+  broker_name?: string | null;
+  /** Latest "Photo" document uploaded on the customer, shown as their picture. */
+  photo_document_id?: number | null;
+}
+
+export interface Broker {
+  id: number;
+  name: string;
+  phone?: string | null;
+  firm?: string | null;
+  commission_pct: number;
+  status: 'Active' | 'Inactive';
+  notes?: string | null;
+  customers_count?: number;
+  commission_due?: number;
+  commission_paid?: number;
+  created_at: string;
+}
+export interface BrokerCommission {
+  id: number;
+  broker_id: number;
+  broker_name?: string;
+  customer_id: number;
+  customer_name?: string;
+  customer_code?: string;
+  transaction_id: number;
+  receipt_number?: string | null;
+  payment_date?: string;
+  payment_amount: number;
+  pct: number;
+  amount: number;
+  status: 'Due' | 'Paid';
+  paid_on?: string | null;
+  paid_method?: string | null;
+  created_at: string;
+}
+export interface Expense {
+  id: number;
+  expense_date: string;
+  category: ExpenseCategory;
+  description: string;
+  amount: number;
+  method: string;
+  paid_to?: string | null;
+  reference?: string | null;
+  recorded_by?: number | null;
+  recorded_by_name?: string | null;
+  created_at: string;
+}
+export interface SalaryPayment {
+  id: number;
+  user_id: number;
+  user_name?: string;
+  month: string;
+  amount: number;
+  paid_on: string;
+  method: string;
+  notes?: string | null;
+  created_at: string;
+}
+/** One staff member's salary for a month: what is due, what was paid and what is left. */
+export interface SalaryRow {
+  user_id: number;
+  name: string;
+  title?: string | null;
+  role: Role;
+  monthly_salary: number;
+  paid: number;
+  balance: number;
+  payments: SalaryPayment[];
+}
+export interface AttendanceRecord {
+  id?: number;
+  user_id: number;
+  name?: string;
+  title?: string | null;
+  date: string;
+  status: AttendanceStatus | null;
+  check_in_at?: string | null;
+  check_out_at?: string | null;
+  notes?: string | null;
+}
+export interface TargetRow {
+  user_id: number;
+  name: string;
+  title?: string | null;
+  monthly_target: number;
+  achieved: number;
+  bookings: number;
+  collected: number;
+}
+/** Plot map: every unit, grouped by project and block. */
+export interface PlotMapUnit {
+  id: number;
+  project: string;
+  block: string | null;
+  unit_number: string;
+  type: string;
+  status: PropertyStatus;
+  area_sqft: number;
+  price: number;
+  customer_name?: string | null;
+}
+export interface PropertyHistoryEntry {
+  customer_id: number;
+  customer_code: string;
+  customer_name: string;
+  booking_date: string;
+  total_value: number;
+  status: 'Active' | 'Completed' | 'Cancelled';
+  cancelled_at?: string | null;
+  cancel_reason?: string | null;
+  agent_name?: string | null;
+  registry_status?: RegistryStatus;
+  registry_date?: string | null;
+}
+/** "At a glance" numbers shown first on the dashboard. */
+export interface Overview {
+  plots: { total: number; available: number; hold: number; booked: number; sold: number };
+  today_collection: number;
+  today_count: number;
+  total_pending: number;
+  overdue: number;
+  registry_pending: number;
+  registry_due_15: number;
+  attendance: { staff: number; present: number; half_day: number; leave: number; absent: number; not_marked: number } | null;
 }
 
 export interface Deal {
@@ -460,6 +602,8 @@ export interface ReceiptData {
   property_project?: string | null;
   property_unit?: string | null;
   property_name?: string | null;
+  property_location?: string | null;
+  property_city?: string | null;
   recorded_by_name?: string | null;
   customer: { id: number; code: string; name: string; phone: string; email?: string | null; address?: string | null; city?: string | null; total_value: number };
   company: Company;

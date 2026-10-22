@@ -84,6 +84,7 @@ export const transactionsRouter = Router();
 const TXN_SELECT = `
   SELECT t.*, c.name AS customer_name, c.code AS customer_code, c.phone AS customer_phone, c.email AS customer_email,
          p.project AS property_project, p.unit_number AS property_unit, p.name AS property_name,
+         p.location AS property_location, p.city AS property_city,
          i.label AS installment_label, i.number AS installment_number, u.name AS recorded_by_name
   FROM transactions t
   JOIN customers c ON c.id = t.customer_id

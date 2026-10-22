@@ -15,6 +15,20 @@ export const SALES_ROLES: Role[] = ['admin', 'manager', 'sales'];
 export const FINANCE_ROLES: Role[] = ['admin', 'accounts'];
 export const ROLE_LABEL: Record<Role, string> = Object.fromEntries(ROLES.map((r) => [r.key, r.name])) as Record<Role, string>;
 
+/**
+ * Job titles offered when adding staff. Each one signs in with its own login and gets the access of
+ * its role: Director and GM see everything, Accountant only money, Telecaller and Sales Person only
+ * their own leads and customers.
+ */
+export const DESIGNATIONS = [
+  { title: 'Director', role: 'admin', description: 'Sees and manages everything' },
+  { title: 'General Manager', role: 'admin', description: 'Sees and manages everything' },
+  { title: 'Sales Manager', role: 'manager', description: 'Whole sales team, leads and customers; no accounts' },
+  { title: 'Accountant', role: 'accounts', description: 'Payments, receipts, expenses and salaries only' },
+  { title: 'Sales Person', role: 'sales', description: 'Only their own leads and customers' },
+  { title: 'Telecaller', role: 'sales', description: 'Only their own leads and customers' },
+] as const satisfies readonly { title: string; role: Role; description: string }[];
+
 // ─── Front-ends ──────────────────────────────────────────────────────────
 export const CLIENTS = ['dashboard', 'app'] as const;
 export type ClientKind = (typeof CLIENTS)[number];
@@ -40,6 +54,16 @@ export const CONTACT_CHANNELS = ['Call', 'WhatsApp', 'SMS', 'Email'] as const;
 export type ContactChannel = (typeof CONTACT_CHANNELS)[number];
 export const PROPERTY_TYPES = ['Apartment', 'Villa', 'Plot', 'Commercial', 'Office', 'Shop'] as const;
 export const PROPERTY_STATUSES = ['Available', 'Reserved', 'Booked', 'Sold'] as const;
+/** "Reserved" is the hold status: shown as "Hold" on the plot map. */
+export const REGISTRY_STATUSES = ['Not done', 'Date fixed', 'Done'] as const;
+export type RegistryStatus = (typeof REGISTRY_STATUSES)[number];
+/** Days before a fixed registry date when staff and the customer are reminded. */
+export const REGISTRY_REMINDER_DAYS = [15, 7, 1, 0] as const;
+export const EXPENSE_CATEGORIES = ['Site', 'Office', 'Marketing', 'Salary advance', 'Legal & registry', 'Other'] as const;
+export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
+export const ATTENDANCE_STATUSES = ['Present', 'Half day', 'Leave', 'Absent'] as const;
+export type AttendanceStatus = (typeof ATTENDANCE_STATUSES)[number];
+export const COMMISSION_STATUSES = ['Due', 'Paid'] as const;
 export type PropertyStatus = (typeof PROPERTY_STATUSES)[number];
 export const PAYMENT_METHODS = ['Bank Transfer', 'UPI', 'Cheque', 'Cash', 'Card', 'Finance'] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];

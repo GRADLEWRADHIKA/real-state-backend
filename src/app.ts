@@ -31,6 +31,10 @@ import settingsRoutes from './routes/settings.js';
 import portalRoutes from './routes/portal.js';
 import searchRoutes from './routes/search.js';
 import { mediaRouter, publicMediaRouter } from './routes/media.js';
+import brokerRoutes from './routes/brokers.js';
+import expenseRoutes from './routes/expenses.js';
+import staffRoutes from './routes/staff.js';
+import backupRoutes from './routes/backups.js';
 
 const toMatcher = (o: string) => (o.includes('*') ? new RegExp(`^${o.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[a-z0-9-]+')}$`, 'i') : o);
 
@@ -119,6 +123,10 @@ export function createApp() {
   api.use('/customer-requests', customerRequestRoutes);
   api.use('/audit', auditRoutes);
   api.use('/search', searchRoutes);
+  api.use('/brokers', brokerRoutes);
+  api.use('/expenses', expenseRoutes);
+  api.use('/staff', staffRoutes);
+  api.use('/backups', backupRoutes);
   app.use('/api', api);
   app.use('/api', notFoundHandler);
 

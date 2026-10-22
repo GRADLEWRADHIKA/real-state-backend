@@ -22,6 +22,9 @@ import {
   PAYMENT_METHODS,
   PROPERTY_STATUSES,
   PROPERTY_TYPES,
+  REGISTRY_STATUSES,
+  EXPENSE_CATEGORIES,
+  ATTENDANCE_STATUSES,
   ROLE_KEYS,
   TASK_PRIORITIES,
   TASK_STATUSES,
@@ -107,6 +110,8 @@ export const customerListQuery = listQuery.extend({
   project: optText,
   agent: optId,
   payment: z.enum(['overdue', 'clear']).optional().or(z.literal('').transform(() => undefined)),
+  registry: z.enum([...REGISTRY_STATUSES, 'pending', 'due15']).optional().or(z.literal('').transform(() => undefined)),
+  broker: optId,
 });
 export const propertyListQuery = listQuery.extend({
   status: z.enum(PROPERTY_STATUSES).optional().or(z.literal('').transform(() => undefined)),
@@ -116,6 +121,7 @@ export const propertyListQuery = listQuery.extend({
   price_max: optNum,
   bedrooms: optNum,
   available: z.enum(['0', '1']).optional(),
+  block: optText,
 });
 export const visitListQuery = listQuery.extend({
   status: z.enum(VISIT_STATUSES).optional().or(z.literal('').transform(() => undefined)),
@@ -308,8 +314,18 @@ export const customerUpdateBody = z
     pan: zPan,
     aadhaar: zAadhaar,
     assigned_to: zId.optional().nullable(),
+    nominee_name: zOptStr,
+    nominee_relation: zOptStr,
+    nominee_phone: zPhone.optional().nullable().or(z.literal('').transform(() => null)),
+    nominee_aadhaar: zAadhaar,
+    registry_status: z.enum(REGISTRY_STATUSES),
+    registry_date: zDate.optional().nullable().or(z.literal('').transform(() => null)),
+    registry_number: zOptStr,
+    broker_id: zId.optional().nullable().or(z.literal('').transform(() => null)),
   })
-  .partial();
+  .partial()
+  .refine((c) => c.registry_status !== 'Date fixed' || !!c.registry_date, { message: 'registry_date: is required when the registry date is fixed', path: ['registry_date'] })
+  .refine((c) => c.registry_status !== 'Done' || !!c.registry_number, { message: 'registry_number: is required once the registry is done', path: ['registry_number'] });
 export const customerNoteBody = z.object({
   note: z.string().trim().min(1).max(4000),
   channel: z.enum(['note', 'call', 'whatsapp', 'sms', 'email', 'meeting']).default('note'),
@@ -325,6 +341,8 @@ export const propertyBody = z.object({
   city: z.string().trim().min(2, 'is required').max(60),
   type: z.enum(PROPERTY_TYPES),
   unit_number: z.string().trim().min(1, 'is required').max(30),
+  block: z.string().trim().max(30).optional().nullable(),
+  rate_per_sqft: z.coerce.number().int().min(0).optional().nullable().or(z.literal('').transform(() => null)),
   tower: zOptStr,
   floor: z.coerce.number().int().min(-2).max(150).optional().nullable(),
   bedrooms: z.coerce.number().int().min(0).max(12).optional().nullable(),
@@ -442,6 +460,44 @@ export const userBody = z.object({
   password: z.string().optional(),
 });
 export const userStatusBody = z.object({ status: z.enum(['Active', 'Inactive']) });
+
+// ─── Brokers, expenses, staff ────────────────────────────────
+export const brokerBody = z.object({
+  name: z.string().trim().min(2, 'is required').max(80),
+  phone: zPhone.optional().nullable().or(z.literal('').transform(() => null)),
+  firm: zOptStr,
+  commission_pct: z.coerce.number().min(0).max(20, 'looks too high'),
+  status: z.enum(['Active', 'Inactive']).default('Active'),
+  notes: zOptStr,
+});
+export const commissionPayBody = z.object({ paid_on: zDate, method: z.enum(PAYMENT_METHODS) });
+export const expenseBody = z.object({
+  expense_date: zDate,
+  category: z.enum(EXPENSE_CATEGORIES),
+  description: z.string().trim().min(2, 'is required').max(200),
+  amount: zMoney.refine((n) => n > 0, 'must be more than zero'),
+  method: z.enum(PAYMENT_METHODS),
+  paid_to: zOptStr,
+  reference: zOptStr,
+});
+export const expenseListQuery = listQuery.extend({ category: z.enum(EXPENSE_CATEGORIES).optional().or(z.literal('').transform(() => undefined)), from: optDate, to: optDate });
+export const zMonth = z.string().regex(/^\d{4}-\d{2}$/, 'must be a month (YYYY-MM)');
+export const staffPayBody = z.object({ monthly_salary: zMoney.optional(), monthly_target: zMoney.optional() });
+export const salaryPaymentBody = z.object({
+  user_id: zId,
+  month: zMonth,
+  amount: zMoney.refine((n) => n > 0, 'must be more than zero'),
+  paid_on: zDate,
+  method: z.enum(PAYMENT_METHODS),
+  notes: zOptStr,
+});
+export const attendanceMarkBody = z.object({
+  user_id: zId,
+  date: zDate,
+  status: z.enum(ATTENDANCE_STATUSES),
+  notes: zOptStr,
+});
+export const attendanceCheckBody = z.object({ lat: zLat.optional().nullable(), lng: zLng.optional().nullable() });
 
 // ─── Settings ────────────────────────────────────────────────────────────
 const list = z.array(z.string().trim().min(1).max(40)).min(1).max(30);

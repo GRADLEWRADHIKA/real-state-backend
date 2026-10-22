@@ -1,4 +1,5 @@
-import { fmtTime, inr } from '@estateflow/shared';
+import { REGISTRY_REMINDER_DAYS, fmtTime, inr } from '@estateflow/shared';
+import { dailyBackupIfDue } from './backup.js';
 import { config } from '../config.js';
 import { db } from '../db/index.js';
 import { log } from '../logger.js';
@@ -29,7 +30,7 @@ const minutesUntil = (date: string, time: string | null, now: Date) => (new Date
 
 export async function runScheduledJobs(now = new Date()) {
   const t = today();
-  const sent = { followups: 0, overdue: 0, visits: 0, installments: 0, digests: 0 };
+  const sent = { followups: 0, overdue: 0, visits: 0, installments: 0, digests: 0, registry: 0, salary: 0, backup: 0 };
   await syncInstallmentStatuses(true);
 
   // Follow-ups: a reminder up to an hour before, then one "overdue" notice once the time has passed.
@@ -111,6 +112,58 @@ export async function runScheduledJobs(now = new Date()) {
       link: '/payments',
       trigger: 'installment_due',
     });
+  }
+
+  // Registry: 15, 7 and 1 day before a fixed date, and on the day, to the customer's executive, managers and the customer.
+  for (const days of REGISTRY_REMINDER_DAYS) {
+    const due = await db.all(
+      `SELECT c.id, c.name, c.code, c.registry_date, c.assigned_to FROM customers c
+       WHERE c.status != 'Cancelled' AND c.registry_status = 'Date fixed' AND c.registry_date = ?`,
+      [addDays(t, days)],
+    );
+    for (const c of due) {
+      const when = days === 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days (${c.registry_date})`;
+      const n: NotificationInput = { type: 'alert', title: 'Registry reminder', message: `${c.name} (${c.code}): registry ${when}.`, link: `/customers/${c.id}` };
+      if (await claim(`registry_${days}`, c.id, 0, t)) {
+        await notifyUsers([c.assigned_to], n);
+        await notifyRoles(['admin', 'manager'], n);
+        sent.registry++;
+      }
+      const portal = await portalUserFor(c.id);
+      sent.registry += await remind(`registry_customer_${days}`, c.id, portal?.id, t, {
+        type: 'property',
+        title: 'Registry reminder',
+        message: `Your property registry is ${when}. Please keep your ID proof, photos and payment receipts ready.`,
+        link: '/home',
+      });
+    }
+  }
+
+  // Salary: from the 1st of each month, remind accounts once a day while last month's salaries are unpaid.
+  const lastMonth = addDays(`${t.slice(0, 7)}-01`, -1).slice(0, 7);
+  if (Number(t.slice(8, 10)) <= 7) {
+    const unpaid = await db.get<{ n: number; amount: number }>(
+      `SELECT COUNT(*) AS n, COALESCE(SUM(u.monthly_salary - COALESCE(p.paid, 0)), 0) AS amount FROM users u
+       LEFT JOIN (SELECT user_id, SUM(amount) AS paid FROM salary_payments WHERE month = ? GROUP BY user_id) p ON p.user_id = u.id
+       WHERE u.status = 'Active' AND u.role != 'customer' AND u.monthly_salary > COALESCE(p.paid, 0)`,
+      [lastMonth],
+    );
+    if (unpaid!.n && (await claim('salary_due', 0, 0, t))) {
+      await notifyRoles(['admin', 'accounts'], {
+        type: 'payment',
+        title: 'Salary reminder',
+        message: `${unpaid!.n} staff salar${unpaid!.n === 1 ? 'y' : 'ies'} for ${lastMonth} still unpaid (${inr(unpaid!.amount)}).`,
+        link: '/staff?tab=salary',
+      });
+      sent.salary++;
+    }
+  }
+
+  // Automatic daily backup of the database.
+  try {
+    if (await dailyBackupIfDue()) sent.backup++;
+  } catch (err) {
+    log.error('daily backup failed', { err });
   }
 
   // Morning digest for the field team (off by default in Settings → Notifications).

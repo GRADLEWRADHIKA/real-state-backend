@@ -4,7 +4,8 @@
   "description": "EstateFlow CRM API (Express 5 + SQLite) used by the EstateFlow dashboard and app",
   "main": "src/index.ts",
   "scripts": {
-    "dev": "tsx watch src/index.ts --demo",
+    "dev": "tsx watch src/index.ts",
+    "dev:demo": "tsx watch src/index.ts --demo",
     "start": "tsx src/index.ts",
     "start:demo": "tsx src/index.ts --demo",
     "seed:demo": "tsx src/db/seed-cli.ts --demo --reset",

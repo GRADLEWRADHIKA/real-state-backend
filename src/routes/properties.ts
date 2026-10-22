@@ -54,6 +54,7 @@ r.get('/', async (req, res) => {
   if (q.status) { where += ' AND p.status = ?'; params.push(q.status); }
   if (q.type) { where += ' AND p.type = ?'; params.push(q.type); }
   if (q.project) { where += ' AND p.project = ?'; params.push(q.project); }
+  if (q.block) { where += ' AND p.block = ?'; params.push(q.block); }
   if (q.price_min !== undefined) { where += ' AND p.price >= ?'; params.push(q.price_min); }
   if (q.price_max !== undefined) { where += ' AND p.price <= ?'; params.push(q.price_max); }
   if (q.bedrooms !== undefined) { where += ' AND p.bedrooms >= ?'; params.push(q.bedrooms); }
@@ -68,12 +69,23 @@ r.get('/', async (req, res) => {
   const rows = await db.all(`${SELECT} ${where} ORDER BY ${q.sort ? orderBy(sorts, q.sort, q.order, 'p.price', 'asc') : TYPE_ORDER} LIMIT ? OFFSET ?`, [...params, p.limit, p.offset]);
   const summary = await db.all('SELECT status, COUNT(*) AS n, SUM(price) AS value FROM properties GROUP BY status');
   const projects = await db.all(
-    `SELECT project, MIN(location) AS location, COUNT(*) AS units,
+    `SELECT project, MIN(location) AS location, MIN(type) AS type, COUNT(*) AS units,
        SUM(CASE WHEN status IN ('Available','Reserved') THEN 1 ELSE 0 END) AS available,
        MIN(price) AS min_price, MAX(price) AS max_price
      FROM properties GROUP BY project ORDER BY project`,
   );
-  res.json({ data: await withImages(rows.map(out)), meta: pageMeta(total, p, { summary, projects }) });
+  const blocks = (await db.all<{ block: string }>("SELECT DISTINCT block FROM properties WHERE block IS NOT NULL AND block != '' ORDER BY block")).map((b) => b.block);
+  res.json({ data: await withImages(rows.map(out)), meta: pageMeta(total, p, { summary, projects, blocks }) });
+});
+
+/** Plot map: every unit with its status, for the colour-coded layout grouped by project and block. */
+r.get('/map', async (_req, res) => {
+  const data = await db.all(
+    `SELECT p.id, p.project, p.block, p.unit_number, p.type, p.status, p.area_sqft, p.price,
+       (SELECT c.name FROM customers c WHERE c.property_id = p.id AND c.status != 'Cancelled' ORDER BY c.id DESC LIMIT 1) AS customer_name
+     FROM properties p ORDER BY p.project, COALESCE(p.block, ''), length(p.unit_number), p.unit_number`,
+  );
+  res.json({ data });
 });
 
 r.get('/:id', async (req, res) => {
@@ -107,9 +119,17 @@ r.get('/:id', async (req, res) => {
         ),
     db.all("SELECT d.*, u.name AS uploaded_by_name FROM documents d LEFT JOIN users u ON u.id = d.uploaded_by WHERE d.entity_type = 'property' AND d.entity_id = ? ORDER BY d.created_at DESC", [p.id]),
   ]);
+  // Plot history: every booking ever made on this unit, cancelled ones included, newest first.
+  const history = await db.all(
+    `SELECT c.id AS customer_id, c.code AS customer_code, c.name AS customer_name, c.booking_date, c.total_value, c.status,
+       c.cancelled_at, c.cancel_reason, c.registry_status, c.registry_date, c.assigned_to, u.name AS agent_name
+     FROM customers c LEFT JOIN users u ON u.id = c.assigned_to WHERE c.property_id = ? ORDER BY c.booking_date DESC, c.id DESC`,
+    [p.id],
+  );
+  const visibleHistory = history.map(({ assigned_to, ...h }) => (sales && assigned_to !== req.user.id ? { ...h, customer_name: 'Another customer', customer_code: '' } : h));
   // A sales executive sees that a unit is booked, but only their own customer's details.
   const owner = customer && sales && customer.assigned_to !== req.user.id ? { status: customer.status, booking_date: customer.booking_date, deal_stage: customer.deal_stage } : customer;
-  res.json({ ...p, leads, customer: owner, visits, documents, gallery: documents.filter((d: any) => String(d.mime).startsWith('image/')), generating: isGenerating(p.id) });
+  res.json({ ...p, leads, customer: owner, visits, documents, history: visibleHistory, gallery: documents.filter((d: any) => String(d.mime).startsWith('image/')), generating: isGenerating(p.id) });
 });
 
 r.post('/', authorize('admin', 'manager'), async (req, res) => {

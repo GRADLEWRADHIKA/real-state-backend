@@ -26,6 +26,10 @@ import userRoutes from '../src/routes/users.js';
 import settingsRoutes from '../src/routes/settings.js';
 import portalRoutes from '../src/routes/portal.js';
 import searchRoutes from '../src/routes/search.js';
+import brokerRoutes from '../src/routes/brokers.js';
+import expenseRoutes from '../src/routes/expenses.js';
+import staffRoutes from '../src/routes/staff.js';
+import backupRoutes from '../src/routes/backups.js';
 
 // Mirrors src/app.ts. Every group except auth and public sits behind `authenticate`.
 const GROUPS: [string, any, string][] = [
@@ -52,6 +56,10 @@ const GROUPS: [string, any, string][] = [
   ['/api/customer-requests', customerRequestRoutes, 'Staff inbox for requests raised in the customer app.'],
   ['/api/audit', auditRoutes, 'Audit log.'],
   ['/api/search', searchRoutes, 'Global search.'],
+  ['/api/brokers', brokerRoutes, 'Brokers (channel partners) and the commission worked out automatically on their customers’ payments.'],
+  ['/api/expenses', expenseRoutes, 'Site and office expenses, with CSV export.'],
+  ['/api/staff', staffRoutes, 'Staff salary (due, paid, left), attendance (self check-in/out and marking) and monthly sales targets.'],
+  ['/api/backups', backupRoutes, 'Automatic daily database backups: list, back up now, download (admin, dashboard only).'],
 ];
 
 // "METHOD path" → [body schema, query schema]

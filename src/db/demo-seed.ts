@@ -12,6 +12,7 @@ import { log } from '../logger.js';
 import { addDays, financialYear, humanDate, today } from '../utils/dates.js';
 import { installmentStatus, syncInstallmentStatuses } from '../services/payments.js';
 import { normalizePhone } from '@estateflow/shared';
+import { syncCommissionsForCustomer } from '../services/commission.js';
 import { slugify } from '../images/slug.js';
 
 const T = today();
@@ -672,4 +673,88 @@ async function seedDemo() {
 
   // Link the customer portal login.
   await db.update('users', ids['u:amit'], { customer_id: amitId });
+
+  await seedPlotCrm(ids);
+}
+
+/** Blocks, rates, brokers, registry, nominees, expenses, salaries, targets and attendance. */
+async function seedPlotCrm(ids: Record<string, number>) {
+  // Plots are laid out in blocks named by the first letter of the plot number (A-18 is in block A).
+  await db.run("UPDATE properties SET block = substr(unit_number, 1, 1), rate_per_sqft = CAST(price / area_sqft AS INTEGER) WHERE type = 'Plot'");
+  await db.run("UPDATE properties SET block = 'Villa Enclave' WHERE type = 'Villa'");
+  await db.run("UPDATE properties SET block = 'Tower ' || substr(unit_number, 1, 1) WHERE type = 'Apartment'");
+  await db.run("UPDATE properties SET block = 'Commercial' WHERE type IN ('Commercial', 'Shop', 'Office')");
+
+  const lucknowHomes = await db.insert('brokers', { name: 'Sanjay Rastogi', phone: '+91 94151 66320', firm: 'Lucknow Homes', commission_pct: 2, status: 'Active', notes: 'Channel partner for Mohanlalganj and Barabanki', created_at: DT(-300) });
+  await db.insert('brokers', { name: 'Faisal Ahmad', phone: '+91 99184 22071', firm: 'Awadh Realtors', commission_pct: 1.5, status: 'Active', notes: null, created_at: DT(-200) });
+  for (const name of ['Vivek Pandey', 'Priyanka Shukla']) {
+    if (!ids[`c:${name}`]) continue;
+    await db.update('customers', ids[`c:${name}`], { broker_id: lucknowHomes });
+    await syncCommissionsForCustomer(ids[`c:${name}`]);
+  }
+  const firstDue = await db.get<{ id: number }>("SELECT id FROM broker_commissions WHERE status = 'Due' ORDER BY id LIMIT 1");
+  if (firstDue) await db.update('broker_commissions', firstDue.id, { status: 'Paid', paid_on: D(-20), paid_method: 'Bank Transfer' });
+
+  // Registry: one done, two with dates fixed (one inside the 15-day reminder window).
+  const regs: [string, string, number | null, string | null][] = [
+    ['Rajesh Gupta', 'Done', -12, 'LKO/2026/MHL/04812'],
+    ['Vivek Pandey', 'Date fixed', 10, null],
+    ['Anjali Mishra', 'Date fixed', 40, null],
+  ];
+  for (const [name, status, day, number] of regs) {
+    if (ids[`c:${name}`]) await db.update('customers', ids[`c:${name}`], { registry_status: status, registry_date: day === null ? null : D(day), registry_number: number });
+  }
+  if (ids['c:Amit Sharma']) {
+    await db.update('customers', ids['c:Amit Sharma'], { nominee_name: 'Sunita Sharma', nominee_relation: 'Wife', nominee_phone: '+91 98391 22048', nominee_aadhaar: '4821 7730 1964' });
+  }
+
+  const expenses: [number, string, string, number, string, string | null][] = [
+    [0, 'Site', 'Diesel for site generator', 4200, 'Cash', 'Indian Oil, Mohanlalganj'],
+    [0, 'Office', 'Tea and refreshments for walk-in clients', 650, 'Cash', null],
+    [-1, 'Site', 'Labour payment, boundary wall (week 41)', 38500, 'Cash', 'Ramesh Contractor'],
+    [-2, 'Marketing', 'Hoarding rent, Kanpur Road', 25000, 'Bank Transfer', 'Shivam Outdoor Media'],
+    [-3, 'Office', 'Electricity bill, Ashiyana office', 6840, 'UPI', 'LESA'],
+    [-5, 'Site', 'Plot boundary stones and paint', 12300, 'UPI', 'Gupta Hardware'],
+    [-8, 'Legal & registry', 'Stamp paper and registry fee, Rajesh Gupta', 15500, 'Cheque', 'Sub-registrar office'],
+    [-12, 'Office', 'Internet and phone bills', 3120, 'UPI', 'Airtel'],
+    [-20, 'Site', 'JCB hire for road levelling (2 days)', 22000, 'Bank Transfer', 'Yadav Earthmovers'],
+    [-33, 'Marketing', 'Facebook and Instagram ads', 18000, 'Card', 'Meta'],
+  ];
+  for (const [day, category, description, amount, method, paid_to] of expenses) {
+    await db.insert('expenses', { expense_date: D(day), category, description, amount, method, paid_to, reference: null, recorded_by: ids['u:pooja'], created_at: DT(day, '18:00') });
+  }
+
+  const pay: Record<string, [number, number]> = {
+    admin: [0, 0], neha: [65000, 0], rahul: [38000, 4000000], priya: [30000, 3000000], arjun: [28000, 2500000], sneha: [28000, 2500000],
+    karan: [26000, 2000000], pooja: [42000, 0], manish: [30000, 0],
+  };
+  const lastMonth = D(-Number(T.slice(8, 10))).slice(0, 7);
+  for (const [key, [salary, target]] of Object.entries(pay)) {
+    const id = ids[`u:${key}`];
+    if (!id) continue;
+    await db.update('users', id, { monthly_salary: salary, monthly_target: target });
+    // Last month: everyone paid except two who got only part of it.
+    if (salary) {
+      const amount = key === 'arjun' || key === 'manish' ? Math.round(salary / 2) : salary;
+      await db.insert('salary_payments', { user_id: id, month: lastMonth, amount, paid_on: `${T.slice(0, 7)}-01`, method: 'Bank Transfer', notes: null, recorded_by: ids['u:pooja'], created_at: DT(-1) });
+    }
+  }
+
+  // Attendance for the last 10 days, plus a partly marked today.
+  const staff = ['neha', 'rahul', 'priya', 'arjun', 'sneha', 'karan', 'pooja', 'manish'];
+  for (let day = -10; day <= 0; day++) {
+    const weekday = new Date(`${D(day)}T12:00:00`).getDay();
+    if (weekday === 0) continue;
+    for (const [i, key] of staff.entries()) {
+      if (day === 0 && i >= 5) continue;
+      const roll = (i * 7 + day * 3 + 50) % 17;
+      const status = roll === 0 ? 'Leave' : roll === 1 ? 'Half day' : roll === 2 ? 'Absent' : 'Present';
+      await db.insert('attendance', {
+        user_id: ids[`u:${key}`], date: D(day), status,
+        check_in_at: status === 'Present' || status === 'Half day' ? DT(day, `09:${String(10 + i * 4).padStart(2, '0')}`) : null,
+        check_out_at: day < 0 && status === 'Present' ? DT(day, '18:30') : null,
+        notes: null, marked_by: ids[`u:${key}`], created_at: DT(day),
+      });
+    }
+  }
 }

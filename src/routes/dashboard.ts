@@ -8,6 +8,64 @@ import { syncInstallmentStatuses } from '../services/payments.js';
 
 const r = Router();
 
+/** The numbers shown first when the CRM opens: plots, today's collection, pending money, registry and attendance. */
+r.get('/overview', authorize('admin', 'manager', 'sales', 'accounts'), async (req, res) => {
+  await syncInstallmentStatuses();
+  const t = today();
+  const scoped = isScoped(req.user);
+  const C = scoped ? ' AND c.assigned_to = ?' : '';
+  const sp = scoped ? [req.user.id] : [];
+  const plots = await db.get(
+    `SELECT COUNT(*) AS total,
+       COALESCE(SUM(CASE WHEN status = 'Available' THEN 1 ELSE 0 END), 0) AS available,
+       COALESCE(SUM(CASE WHEN status = 'Reserved' THEN 1 ELSE 0 END), 0) AS hold,
+       COALESCE(SUM(CASE WHEN status = 'Booked' THEN 1 ELSE 0 END), 0) AS booked,
+       COALESCE(SUM(CASE WHEN status = 'Sold' THEN 1 ELSE 0 END), 0) AS sold
+     FROM properties`,
+  );
+  const collection = await db.get(
+    `SELECT COALESCE(SUM(t.amount), 0) AS amount, COUNT(*) AS n FROM transactions t JOIN customers c ON c.id = t.customer_id
+     WHERE t.status = 'Completed' AND t.payment_date = ?${C}`,
+    [t, ...sp],
+  );
+  const pending = await db.get(
+    `SELECT COALESCE(SUM(i.amount - i.paid_amount), 0) AS total,
+       COALESCE(SUM(CASE WHEN i.due_date < ? THEN i.amount - i.paid_amount END), 0) AS overdue
+     FROM installments i JOIN customers c ON c.id = i.customer_id WHERE c.status != 'Cancelled' AND i.paid_amount < i.amount${C}`,
+    [t, ...sp],
+  );
+  const registry = await db.get(
+    `SELECT COALESCE(SUM(CASE WHEN c.registry_status != 'Done' THEN 1 ELSE 0 END), 0) AS pending,
+       COALESCE(SUM(CASE WHEN c.registry_status = 'Date fixed' AND c.registry_date BETWEEN ? AND ? THEN 1 ELSE 0 END), 0) AS due15
+     FROM customers c WHERE c.status != 'Cancelled'${C}`,
+    [t, addDays(t, 15), ...sp],
+  );
+  let attendance = null;
+  if (req.user.role !== 'sales') {
+    const a = await db.get(
+      `SELECT COUNT(*) AS staff,
+         COALESCE(SUM(CASE WHEN a.status = 'Present' THEN 1 ELSE 0 END), 0) AS present,
+         COALESCE(SUM(CASE WHEN a.status = 'Half day' THEN 1 ELSE 0 END), 0) AS half_day,
+         COALESCE(SUM(CASE WHEN a.status = 'Leave' THEN 1 ELSE 0 END), 0) AS leave,
+         COALESCE(SUM(CASE WHEN a.status = 'Absent' THEN 1 ELSE 0 END), 0) AS absent,
+         COALESCE(SUM(CASE WHEN a.status IS NULL THEN 1 ELSE 0 END), 0) AS not_marked
+       FROM users u LEFT JOIN attendance a ON a.user_id = u.id AND a.date = ? WHERE u.status = 'Active' AND u.role != 'customer'`,
+      [t],
+    );
+    attendance = a;
+  }
+  res.json({
+    plots,
+    today_collection: collection!.amount,
+    today_count: collection!.n,
+    total_pending: pending!.total,
+    overdue: pending!.overdue,
+    registry_pending: registry!.pending,
+    registry_due_15: registry!.due15,
+    attendance,
+  });
+});
+
 /**
  * "My day" for the field app: today's visits, follow-ups (today + overdue), open tasks and, for
  * accounts, today's dues. Small enough to cache offline.

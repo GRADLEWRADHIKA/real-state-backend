@@ -16,7 +16,8 @@ import {
 import { db } from '../db/index.js';
 import { adminAppReadOnly, authorize, dashboardOnly, isScoped, scope, type AuthUser } from '../middleware/auth.js';
 import { HttpError, attachmentHeader, forbidden, idParam, likeParam, notFound, orderBy, pageMeta, paging, parse, parseQuery } from '../utils/http.js';
-import { nowIso, today } from '../utils/dates.js';
+import { addDays, nowIso, today } from '../utils/dates.js';
+import { syncCommissionsForCustomer } from '../services/commission.js';
 import { logActivity, notifyRoles, notifyUsers } from '../services/activity.js';
 import { customerFinancials, syncInstallmentStatuses } from '../services/payments.js';
 import { convertLead } from '../services/leads.js';
@@ -28,13 +29,15 @@ r.use(authorize('admin', 'manager', 'sales', 'accounts'), adminAppReadOnly);
 
 const SELECT = `
   SELECT c.*, p.name AS property_name, p.project AS property_project, p.unit_number AS property_unit, p.type AS property_type,
-    u.name AS agent_name,
+    p.block AS property_block, u.name AS agent_name, b.name AS broker_name,
+    (SELECT d.id FROM documents d WHERE d.entity_type = 'customer' AND d.entity_id = c.id AND d.doc_type = 'Photo' AND d.mime LIKE 'image/%' ORDER BY d.created_at DESC, d.id DESC LIMIT 1) AS photo_document_id,
     (SELECT COALESCE(SUM(i.paid_amount), 0) FROM installments i WHERE i.customer_id = c.id) AS paid,
     (SELECT COALESCE(SUM(i.amount - i.paid_amount), 0) FROM installments i WHERE i.customer_id = c.id AND i.paid_amount < i.amount AND i.due_date < ?) AS overdue,
     (SELECT MIN(i.due_date) FROM installments i WHERE i.customer_id = c.id AND i.paid_amount < i.amount) AS next_due_date
   FROM customers c
   LEFT JOIN properties p ON p.id = c.property_id
-  LEFT JOIN users u ON u.id = c.assigned_to`;
+  LEFT JOIN users u ON u.id = c.assigned_to
+  LEFT JOIN brokers b ON b.id = c.broker_id`;
 
 const withBalance = (c: any) => ({ ...c, outstanding: c.status === 'Cancelled' ? 0 : c.total_value - c.paid });
 
@@ -54,6 +57,10 @@ r.get('/', async (req, res) => {
   if (q.status) { where += ' AND c.status = ?'; params.push(q.status); }
   if (q.project) { where += ' AND p.project = ?'; params.push(q.project); }
   if (q.agent) { where += ' AND c.assigned_to = ?'; params.push(q.agent); }
+  if (q.broker) { where += ' AND c.broker_id = ?'; params.push(q.broker); }
+  if (q.registry === 'pending') where += " AND c.registry_status != 'Done' AND c.status != 'Cancelled'";
+  else if (q.registry === 'due15') { where += " AND c.registry_status = 'Date fixed' AND c.registry_date BETWEEN ? AND ? AND c.status != 'Cancelled'"; params.push(today(), addDays(today(), 15)); }
+  else if (q.registry) { where += ' AND c.registry_status = ?'; params.push(q.registry); }
   if (q.q) {
     const like = likeParam(q.q);
     where += ' AND (c.name LIKE ? OR c.phone LIKE ? OR c.email LIKE ? OR c.code LIKE ? OR p.unit_number LIKE ?)';
@@ -182,7 +189,33 @@ r.put('/:id', async (req, res) => {
   if (data.assigned_to && !(await db.get("SELECT id FROM users WHERE id = ? AND status = 'Active' AND role IN ('sales','manager','admin')", [data.assigned_to]))) {
     throw new HttpError(422, 'assigned_to: Select an active sales team member');
   }
+  if (data.broker_id && !(await db.get('SELECT id FROM brokers WHERE id = ?', [data.broker_id]))) throw new HttpError(422, 'broker_id: Unknown broker');
+  // A fixed or completed registry needs its date; the number is kept only once it is done.
+  const registry = data.registry_status ?? c.registry_status;
+  if (data.registry_status && registry === 'Not done') Object.assign(data, { registry_date: null, registry_number: null });
+  if (registry === 'Date fixed' && !(data.registry_date ?? c.registry_date)) throw new HttpError(422, 'registry_date: is required when the registry date is fixed');
   await db.update('customers', c.id, { ...data, updated_at: nowIso() });
+  if (data.broker_id !== undefined && data.broker_id !== c.broker_id) await syncCommissionsForCustomer(c.id);
+  if (data.registry_status && data.registry_status !== c.registry_status) {
+    const when = data.registry_date ?? c.registry_date;
+    await logActivity({
+      customer_id: c.id,
+      type: 'registry',
+      title: `Registry: ${data.registry_status}`,
+      description: data.registry_status === 'Done' ? `Registry number ${data.registry_number ?? c.registry_number ?? ''}` : when ? `Registry date ${when}` : undefined,
+      user_id: req.user.id,
+    });
+    const portal = await portalUserFor(c.id);
+    if (portal && data.registry_status !== 'Not done') {
+      await notifyUsers([portal.id], {
+        type: 'property',
+        title: data.registry_status === 'Done' ? 'Your registry is complete' : 'Your registry date is fixed',
+        message: data.registry_status === 'Done' ? 'Congratulations! The registry of your property is done.' : `Your registry is scheduled for ${when}. Please keep your documents ready.`,
+        link: '/home',
+      });
+      realtime.change(['portal'], { userIds: [portal.id] });
+    }
+  }
   if (data.assigned_to && data.assigned_to !== c.assigned_to) {
     await db.run('UPDATE deals SET agent_id = ? WHERE customer_id = ?', [data.assigned_to, c.id]);
     await notifyUsers([data.assigned_to], { type: 'customer', title: 'Customer assigned to you', message: `${c.name} (${c.code}) is now yours.`, link: `/customers/${c.id}` }, req.user.id);

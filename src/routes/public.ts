@@ -177,7 +177,8 @@ r.get('/company', readLimiter, async (_req, res) => {
   res.json({ ...pub, whatsapp: website.whatsapp ?? c.phone, testimonials: Array.isArray(website.testimonials) ? website.testimonials : [] });
 });
 
-r.get('/form-token', formLimiter, (_req, res) => {
+// Tokens are fetched on every page with a form, so they count as reads; only submissions use the form limit.
+r.get('/form-token', readLimiter, (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.json({ token: issueFormToken() });
 });
