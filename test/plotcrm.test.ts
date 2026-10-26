@@ -166,3 +166,15 @@ describe('customer documents access', () => {
     await db.run('UPDATE customers SET assigned_to = ? WHERE id = ?', [c.assigned_to, doc.entity_id]);
   });
 });
+
+describe('document uploads from the app', () => {
+  it('lets an admin upload a scanned PDF from the app, but not a sales manager', async () => {
+    const adminApp = await as('admin', 'app');
+    const c = await db.get("SELECT id FROM customers LIMIT 1");
+    const pdf = Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n');
+    const res = await adminApp.upload('/api/documents').field('entity_type', 'customer').field('entity_id', String(c.id)).field('doc_type', 'Khatauni').attach('file', pdf, { filename: 'Khatauni (scan).pdf', contentType: 'application/pdf' });
+    expect(res.status).toBe(201);
+    const mgr = await manager.upload('/api/documents').field('entity_type', 'customer').field('entity_id', String(c.id)).field('doc_type', 'Khatauni').attach('file', pdf, { filename: 'x.pdf', contentType: 'application/pdf' });
+    expect(mgr.status).toBe(403);
+  });
+});

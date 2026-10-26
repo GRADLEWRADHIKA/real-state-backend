@@ -45,7 +45,8 @@ r.get('/', authorize('admin', 'manager', 'sales', 'accounts'), async (req, res) 
   res.json({ data, meta: pageMeta(total, p, { types }) });
 });
 
-r.post('/', authorize('admin', 'manager', 'sales', 'accounts'), adminAppReadOnly, upload.single('file'), async (req, res) => {
+// Uploading papers (including scans from the phone) is allowed to admins in the app too; other admin edits stay on the dashboard.
+r.post('/', authorize('admin', 'manager', 'sales', 'accounts'), upload.single('file'), async (req, res) => {
   if (!req.file) throw new HttpError(422, 'file: Choose a file to upload');
   try {
     verifyUploadedFile(req.file);
