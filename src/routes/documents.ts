@@ -32,12 +32,12 @@ r.get('/', authorize('admin', 'manager', 'sales', 'accounts'), async (req, res) 
   if (q.q) { where += ' AND d.name LIKE ?'; params.push(likeParam(q.q)); }
   if (req.user.role === 'sales') {
     where += ` AND ((d.entity_type = 'lead' AND d.entity_id IN (SELECT id FROM leads WHERE assigned_to = ?))
-      OR (d.entity_type = 'customer' AND d.entity_id IN (SELECT id FROM customers WHERE assigned_to = ?))
       OR d.entity_type = 'property'
       OR (d.entity_type = 'deal' AND d.entity_id IN (SELECT id FROM deals WHERE agent_id = ?))
       OR (d.entity_type = 'site_visit' AND d.entity_id IN (SELECT id FROM site_visits WHERE agent_id = ?)))`;
-    params.push(req.user.id, req.user.id, req.user.id, req.user.id);
+    params.push(req.user.id, req.user.id, req.user.id);
   }
+  if (req.user.role === 'manager') where += " AND d.entity_type != 'customer'";
   if (req.user.role === 'accounts') where += " AND d.entity_type IN ('customer','property','deal')";
   const total = (await db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM documents d ${where}`, params))!.n;
   const types = await db.all(`SELECT d.doc_type, COUNT(*) AS n FROM documents d ${where} GROUP BY d.doc_type`, params);

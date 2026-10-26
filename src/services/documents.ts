@@ -72,12 +72,16 @@ export async function removeEntityDocuments(entityType: string, entityId: number
   for (const d of docs) fs.rm(filePath(d.file_name), { force: true }, () => {});
 }
 
-/** Customers only reach their own customer documents; sales executives only their leads/customers/deals/visits. */
+/**
+ * Customer documents (KYC, agreements, land and registry papers) are open only to the customer
+ * themselves, administrators and accounts. Sales executives reach their own leads, deals and visits.
+ */
 export async function assertDocumentAccess(user: AuthUser, entityType: string, entityId: number) {
   if (user.role === 'customer') {
     if (entityType !== 'customer' || !user.customer_id || entityId !== user.customer_id) throw forbidden();
     return;
   }
+  if (entityType === 'customer' && !canSeeCustomerDocuments(user)) throw forbidden('Customer documents are open only to administrators and accounts');
   if (user.role === 'accounts' && (entityType === 'lead' || entityType === 'site_visit')) throw forbidden();
   if (user.role !== 'sales') return;
   const own: Record<string, [string, string]> = {
@@ -94,3 +98,6 @@ export async function assertDocumentAccess(user: AuthUser, entityType: string, e
 }
 
 export const ENTITY_TABLE: Record<string, string> = { lead: 'leads', customer: 'customers', property: 'properties', deal: 'deals', site_visit: 'site_visits' };
+
+/** Staff who may open a customer's documents (the customer always sees their own through the portal). */
+export const canSeeCustomerDocuments = (user: Pick<AuthUser, 'role'>) => user.role === 'admin' || user.role === 'accounts';

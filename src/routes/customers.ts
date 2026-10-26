@@ -22,6 +22,7 @@ import { logActivity, notifyRoles, notifyUsers } from '../services/activity.js';
 import { customerFinancials, syncInstallmentStatuses } from '../services/payments.js';
 import { convertLead } from '../services/leads.js';
 import { portalUserFor } from '../services/notifications.js';
+import { canSeeCustomerDocuments } from '../services/documents.js';
 import { realtime } from '../services/realtime.js';
 
 const r = Router();
@@ -124,7 +125,9 @@ r.get('/:id', async (req, res) => {
     db.all('SELECT r.*, u.name AS handled_by_name FROM customer_requests r LEFT JOIN users u ON u.id = r.handled_by WHERE r.customer_id = ? ORDER BY r.created_at DESC', [c.id]),
   ]);
   if (property?.amenities) property.amenities = JSON.parse(property.amenities);
-  res.json({ ...c, property, deal, installments, transactions, documents, activities, lead, portalUser, financials, requests });
+  // Customer papers are for administrators and accounts only.
+  const docsOpen = canSeeCustomerDocuments(req.user);
+  res.json({ ...c, photo_document_id: docsOpen ? c.photo_document_id : null, documents_hidden: !docsOpen, property, deal, installments, transactions, documents: docsOpen ? documents : [], activities, lead, portalUser, financials, requests });
 });
 
 /** Statement of account: every installment and payment in date order with a running balance. */

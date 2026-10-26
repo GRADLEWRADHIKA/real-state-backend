@@ -84,8 +84,30 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 export const DEAL_STAGES = ['Booked', 'Agreement Signed', 'Registration', 'Possession'] as const;
 export type DealStage = (typeof DEAL_STAGES)[number];
 export const CUSTOMER_STATUSES = ['Active', 'Completed', 'Cancelled'] as const;
-export const DOCUMENT_TYPES = ['Aadhaar', 'PAN', 'Agreement', 'Booking Form', 'Payment Receipt', 'Property Documents', 'ID Proof', 'Requirement', 'Photo', 'Brochure', 'Other'] as const;
-export const CUSTOMER_UPLOAD_TYPES = ['Aadhaar', 'PAN', 'ID Proof', 'Requirement', 'Other'] as const;
+export const DOCUMENT_TYPES = [
+  'Aadhaar', 'PAN', 'ID Proof', 'Photo',
+  'Booking Form', 'Allotment Letter', 'Agreement', 'Payment Plan',
+  'Payment Receipt', 'Bank Loan Sanction', 'NOC from Bank',
+  'Khatauni', 'Khasra / Map', 'Mutation (Dakhil-Kharij)', 'Encumbrance Certificate', 'Layout Approval', 'NOC',
+  'Sale Deed / Registry', 'Stamp Duty Receipt', 'Registry Fee Receipt', 'Possession Letter', 'Completion Certificate',
+  'Property Documents', 'Requirement', 'Brochure', 'Other',
+] as const;
+export type DocumentType = (typeof DOCUMENT_TYPES)[number];
+/**
+ * A customer's paperwork, grouped the way a plot sale produces it. Each section is uploaded and read on
+ * its own; `required` lists what a complete file is expected to hold, so missing papers can be shown.
+ */
+export const DOCUMENT_SECTIONS: { key: string; title: string; hindi: string; types: DocumentType[]; required: DocumentType[] }[] = [
+  { key: 'kyc', title: 'Identity & KYC', hindi: 'पहचान और KYC', types: ['Aadhaar', 'PAN', 'ID Proof', 'Photo'], required: ['Aadhaar', 'PAN', 'Photo'] },
+  { key: 'booking', title: 'Booking & agreement', hindi: 'बुकिंग और एग्रीमेंट', types: ['Booking Form', 'Allotment Letter', 'Agreement', 'Payment Plan'], required: ['Booking Form', 'Agreement'] },
+  { key: 'payments', title: 'Payments & loan', hindi: 'भुगतान और लोन', types: ['Payment Receipt', 'Bank Loan Sanction', 'NOC from Bank'], required: [] },
+  { key: 'land', title: 'Land records', hindi: 'ज़मीन के कागज़', types: ['Khatauni', 'Khasra / Map', 'Mutation (Dakhil-Kharij)', 'Encumbrance Certificate', 'Layout Approval', 'NOC'], required: ['Khatauni'] },
+  { key: 'registry', title: 'Registry & possession', hindi: 'रजिस्ट्री और कब्ज़ा', types: ['Sale Deed / Registry', 'Stamp Duty Receipt', 'Registry Fee Receipt', 'Possession Letter', 'Completion Certificate'], required: ['Sale Deed / Registry', 'Possession Letter'] },
+  { key: 'other', title: 'Other', hindi: 'अन्य', types: ['Property Documents', 'Requirement', 'Brochure', 'Other'], required: [] },
+];
+/** The section a document type belongs to (unknown or old types fall under Other). */
+export const documentSection = (type: string) => DOCUMENT_SECTIONS.find((s) => (s.types as string[]).includes(type)) ?? DOCUMENT_SECTIONS.at(-1)!;
+export const CUSTOMER_UPLOAD_TYPES = ['Aadhaar', 'PAN', 'ID Proof', 'Photo', 'Bank Loan Sanction', 'Requirement', 'Other'] as const;
 export const DOCUMENT_ENTITIES = ['lead', 'customer', 'property', 'deal', 'site_visit'] as const;
 export type DocumentEntity = (typeof DOCUMENT_ENTITIES)[number];
 export const CUSTOMER_REQUEST_TYPES = ['Site visit', 'Query', 'Document', 'Payment', 'Complaint'] as const;

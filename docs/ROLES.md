@@ -37,7 +37,8 @@ EstateFlow has five roles. The server enforces every rule here, in `authorize()`
 | **Finance overview, transactions list, installments** | ✅ | — | — | ✅ | — |
 | Record a payment, change a transaction's status | ✅ | — | — | ✅ | — |
 | View or download a receipt | ✅ | ✅ | 👤 | ✅ | Own receipts |
-| **Documents**: list, upload | ✅ | ✅ | 👤 (their leads, customers and visits) | ✅ | Own KYC uploads via portal |
+| **Customer documents** (KYC, booking, payments, land records, registry): view, upload | ✅ | — | — | ✅ | Own documents in the app (view; uploads KYC and loan papers) |
+| **Other documents** (leads, deals, site visits, properties): list, upload | ✅ | ✅ | 👤 (their leads, deals and visits) | ✅ (deals, properties) | — |
 | Documents: delete | ✅ | ✅ | Only files they uploaded | Only files they uploaded | — |
 | **Customer requests** (inbox, status, reply) | ✅ | ✅ | 👤 (their customers) | ✅ | Raise and track their own |
 | **Reports** and CSV/PDF export | ✅ | ✅ | — | ✅ | — |

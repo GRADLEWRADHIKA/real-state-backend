@@ -147,3 +147,22 @@ describe('backups', () => {
     await admin.get('/api/backups/..%2F..%2F.env').expect(400);
   });
 });
+
+describe('customer documents access', () => {
+  it('opens customer papers only to admin, accounts and the customer', async () => {
+    const doc = await db.get("SELECT id, entity_id FROM documents WHERE entity_type = 'customer' LIMIT 1");
+    const c = await db.get('SELECT assigned_to FROM customers WHERE id = ?', [doc.entity_id]);
+    await admin.get(`/api/documents/${doc.id}/download`).expect(200);
+    await accounts.get(`/api/documents/${doc.id}/download`).expect(200);
+    await manager.get(`/api/documents/${doc.id}/download`).expect(403);
+    await db.run('UPDATE customers SET assigned_to = ? WHERE id = ?', [sales.session.user.id, doc.entity_id]);
+    await sales.get(`/api/documents/${doc.id}/download`).expect(403);
+    const detail = await sales.get(`/api/customers/${doc.entity_id}`).expect(200);
+    expect(detail.body.documents).toEqual([]);
+    expect(detail.body.documents_hidden).toBe(true);
+    const list = await manager.get('/api/documents?limit=50').expect(200);
+    expect(list.body.data.every((d: { entity_type: string }) => d.entity_type !== 'customer')).toBe(true);
+    expect((await accounts.get(`/api/customers/${doc.entity_id}`).expect(200)).body.documents.length).toBeGreaterThan(0);
+    await db.run('UPDATE customers SET assigned_to = ? WHERE id = ?', [c.assigned_to, doc.entity_id]);
+  });
+});
