@@ -89,11 +89,11 @@ export function dashboardOnly(req: Request, _res: Response, next: NextFunction) 
   next();
 }
 
-/** The admin app is read-mostly: writes by admins from the app are limited to the routes that opt in. */
-export function adminAppReadOnly(req: Request, _res: Response, next: NextFunction) {
-  if (req.user.role === 'admin' && req.user.client === 'app' && req.method !== 'GET' && req.method !== 'HEAD') {
-    throw new HttpError(403, 'Administrators can make this change from the dashboard.', { code: 'dashboard_only' });
-  }
+/**
+ * Administrators used to be read-only in the app. Every role now works the same in the app and the
+ * dashboard, so this guard lets everything through; it stays as the one place to restrict the app again.
+ */
+export function adminAppReadOnly(_req: Request, _res: Response, next: NextFunction) {
   next();
 }
 

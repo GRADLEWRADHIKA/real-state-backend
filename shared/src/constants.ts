@@ -36,7 +36,7 @@ export const CLIENT_HEADER = 'X-EstateFlow-Client';
 
 /** Which roles may sign in to which front-end. Enforced by the server at login and on every request. */
 export const CLIENT_ACCESS: Record<ClientKind, Role[]> = {
-  dashboard: ['admin', 'manager', 'sales', 'accounts'],
+  dashboard: ['admin', 'manager', 'sales', 'accounts', 'customer'],
   app: ['admin', 'manager', 'sales', 'accounts', 'customer'],
 };
 export const CUSTOMER_DASHBOARD_MESSAGE =

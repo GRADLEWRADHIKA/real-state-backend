@@ -184,16 +184,14 @@ describe('customers', () => {
   });
 });
 
-describe('admin in the app is read-mostly', () => {
-  it('can read but not write business records', async () => {
+describe('admin in the app works as on the dashboard', () => {
+  it('can read and write business records', async () => {
     expect(await status(adminApp, 'get', '/api/leads')).toBe(200);
     const res = await adminApp.post('/api/leads', { name: 'App Admin Lead', phone: '+91 90000 11111', source: 'Website' });
-    expect(res.status).toBe(403);
-    expect(res.body.details.code).toBe('dashboard_only');
+    expect(res.status).toBe(201);
   });
-  it('cannot change settings or users from the app', async () => {
+  it('still changes settings only on the dashboard', async () => {
     expect(await status(adminApp, 'put', '/api/settings/security', { session_hours: 8, password_min_length: 8, enforce_strong_passwords: true })).toBe(403);
-    expect(await status(adminApp, 'post', `/api/users/${salesId}/force-logout`)).toBe(403);
   });
   it('can still issue reset codes and read notifications', async () => {
     expect(await status(adminApp, 'post', '/api/notifications/read-all')).toBe(200);

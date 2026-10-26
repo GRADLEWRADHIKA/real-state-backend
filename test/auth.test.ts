@@ -18,11 +18,13 @@ describe('login and client claim', () => {
     expect(me.body.client).toBe('app');
   });
 
-  it('refuses customers on the dashboard with a clear message', async () => {
-    const res = await request(app).post('/api/auth/login').set(H, 'dashboard').send({ email: 'customer@demo.com', password: 'Customer@123', client: 'dashboard' });
-    expect(res.status).toBe(403);
-    expect(res.body.details.code).toBe('customer_on_dashboard');
-    expect(res.body.error).toMatch(/mobile app/i);
+  it('allows customers on the dashboard, where they get their own portal', async () => {
+    const s = await login('customer', 'dashboard');
+    expect(s.user.customer_id).toBeTruthy();
+    const portal = await request(app).get('/api/portal').set('Authorization', `Bearer ${s.accessToken}`).set(H, 'dashboard');
+    expect(portal.status).toBe(200);
+    const leads = await request(app).get('/api/leads').set('Authorization', `Bearer ${s.accessToken}`).set(H, 'dashboard');
+    expect(leads.status).toBe(403);
   });
 
   it('allows customers in the app', async () => {
