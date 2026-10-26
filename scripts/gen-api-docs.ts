@@ -30,6 +30,7 @@ import brokerRoutes from '../src/routes/brokers.js';
 import expenseRoutes from '../src/routes/expenses.js';
 import staffRoutes from '../src/routes/staff.js';
 import backupRoutes from '../src/routes/backups.js';
+import vaultRoutes from '../src/routes/vault.js';
 
 // Mirrors src/app.ts. Every group except auth and public sits behind `authenticate`.
 const GROUPS: [string, any, string][] = [
@@ -59,6 +60,7 @@ const GROUPS: [string, any, string][] = [
   ['/api/brokers', brokerRoutes, 'Brokers (channel partners) and the commission worked out automatically on their customers’ payments.'],
   ['/api/expenses', expenseRoutes, 'Site and office expenses, with CSV export.'],
   ['/api/staff', staffRoutes, 'Staff salary (due, paid, left), attendance (self check-in/out and marking) and monthly sales targets.'],
+  ['/api/vault', vaultRoutes, 'Office and personal documents of administrators and accounts (never shown to customers or sales).'],
   ['/api/backups', backupRoutes, 'Automatic daily database backups: list, back up now, download (admin, dashboard only).'],
 ];
 

@@ -24,7 +24,8 @@ const SELECT = `
 r.get('/', authorize('admin', 'manager', 'sales', 'accounts'), async (req, res) => {
   const q = parseQuery(documentListQuery, req);
   const p = paging(q, 50);
-  let where = 'WHERE 1=1';
+  // Office and personal papers have their own area (/api/vault) and never appear in this list.
+  let where = "WHERE d.entity_type NOT IN ('office','personal')";
   const params: unknown[] = [];
   if (q.entity_type) { where += ' AND d.entity_type = ?'; params.push(q.entity_type); }
   if (q.entity_id) { where += ' AND d.entity_id = ?'; params.push(q.entity_id); }

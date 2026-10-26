@@ -35,6 +35,7 @@ import brokerRoutes from './routes/brokers.js';
 import expenseRoutes from './routes/expenses.js';
 import staffRoutes from './routes/staff.js';
 import backupRoutes from './routes/backups.js';
+import vaultRoutes from './routes/vault.js';
 
 const toMatcher = (o: string) => (o.includes('*') ? new RegExp(`^${o.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[a-z0-9-]+')}$`, 'i') : o);
 
@@ -127,6 +128,7 @@ export function createApp() {
   api.use('/expenses', expenseRoutes);
   api.use('/staff', staffRoutes);
   api.use('/backups', backupRoutes);
+  api.use('/vault', vaultRoutes);
   app.use('/api', api);
   app.use('/api', notFoundHandler);
 

@@ -178,3 +178,31 @@ describe('document uploads from the app', () => {
     expect(mgr.status).toBe(403);
   });
 });
+
+describe('office and personal documents', () => {
+  const pdf = Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n');
+  const put = (s: Session, folder: string, type: string) =>
+    s.upload('/api/vault').field('folder', folder).field('doc_type', type).attach('file', pdf, { filename: `${type}.pdf`, contentType: 'application/pdf' });
+
+  it('keeps office papers for admin and accounts, personal papers for their owner only', async () => {
+    const office = await put(accounts, 'office', 'Sales Report');
+    expect(office.status).toBe(201);
+    const mine = await put(admin, 'personal', 'Tax / ITR');
+    expect(mine.status).toBe(201);
+    expect((await put(admin, 'personal', 'Khatauni')).status).toBe(422);
+
+    expect((await admin.get('/api/vault?folder=office').expect(200)).body.data.some((d: { id: number }) => d.id === office.body.id)).toBe(true);
+    expect((await accounts.get('/api/vault?folder=personal').expect(200)).body.data.some((d: { id: number }) => d.id === mine.body.id)).toBe(false);
+    await accounts.get(`/api/documents/${mine.body.id}/download`).expect(403);
+    await admin.get(`/api/documents/${mine.body.id}/download`).expect(200);
+    await admin.get(`/api/documents/${office.body.id}/download`).expect(200);
+
+    await manager.get('/api/vault?folder=office').expect(403);
+    await sales.get('/api/vault?folder=office').expect(403);
+    await manager.get(`/api/documents/${office.body.id}/download`).expect(403);
+    const all = await admin.get('/api/documents?limit=50').expect(200);
+    expect(all.body.data.every((d: { entity_type: string }) => !['office', 'personal'].includes(d.entity_type))).toBe(true);
+    const customer = await as('customer', 'app');
+    await customer.get(`/api/documents/${office.body.id}/download`).expect(403);
+  });
+});

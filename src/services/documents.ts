@@ -81,6 +81,15 @@ export async function assertDocumentAccess(user: AuthUser, entityType: string, e
     if (entityType !== 'customer' || !user.customer_id || entityId !== user.customer_id) throw forbidden();
     return;
   }
+  // Private papers: office files for administrators and accounts, personal files for their uploader only.
+  if (entityType === 'office') {
+    if (!canSeeCustomerDocuments(user)) throw forbidden();
+    return;
+  }
+  if (entityType === 'personal') {
+    if (entityId !== user.id) throw forbidden();
+    return;
+  }
   if (entityType === 'customer' && !canSeeCustomerDocuments(user)) throw forbidden('Customer documents are open only to administrators and accounts');
   if (user.role === 'accounts' && (entityType === 'lead' || entityType === 'site_visit')) throw forbidden();
   if (user.role !== 'sales') return;

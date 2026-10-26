@@ -205,7 +205,7 @@ Uploads (size limit, type allowlist, content sniffing) and authorised downloads.
 | Method | Path | Roles | Body | Query | Notes |
 | --- | --- | --- | --- | --- | --- |
 | GET | `/api/documents` | admin, manager, sales, accounts |  | [documentListQuery](#documentlistquery) |  |
-| POST | `/api/documents` | admin, manager, sales, accounts | [documentUploadFields](#documentuploadfields) |  | admin read-only in app, multipart: file |
+| POST | `/api/documents` | admin, manager, sales, accounts | [documentUploadFields](#documentuploadfields) |  | multipart: file |
 | GET | `/api/documents/:id/download` | any signed-in |  |  |  |
 | DELETE | `/api/documents/:id` | admin, manager, sales, accounts |  |  | admin read-only in app |
 
@@ -337,6 +337,15 @@ Staff salary (due, paid, left), attendance (self check-in/out and marking) and m
 | GET | `/api/staff/attendance/me` | admin, manager, sales, accounts |  |  |  |
 | POST | `/api/staff/attendance/check-in` | admin, manager, sales, accounts |  |  | admin read-only in app |
 | POST | `/api/staff/attendance/check-out` | admin, manager, sales, accounts |  |  | admin read-only in app |
+
+## vault
+
+Office and personal documents of administrators and accounts (never shown to customers or sales).
+
+| Method | Path | Roles | Body | Query | Notes |
+| --- | --- | --- | --- | --- | --- |
+| GET | `/api/vault` | admin, accounts |  |  |  |
+| POST | `/api/vault` | admin, accounts |  |  | multipart: file |
 
 ## backups
 
@@ -557,7 +566,7 @@ Automatic daily database backups: list, back up now, download (admin, dashboard 
 | `order` | "asc" \| "desc" |  |
 | `entity_type` | "lead" \| "customer" \| "property" \| "deal" \| "site_visit" \| string |  |
 | `entity_id` | integer |  |
-| `doc_type` | "Aadhaar" \| "PAN" \| "Agreement" \| "Booking Form" \| "Payment Receipt" \| "Property Documents" \| "ID Proof" \| "Requirement" \| "Photo" \| "Brochure" \| "Other" \| string |  |
+| `doc_type` | "Aadhaar" \| "PAN" \| "ID Proof" \| "Photo" \| "Booking Form" \| "Allotment Letter" \| "Agreement" \| "Payment Plan" \| "Payment Receipt" \| "Bank Loan Sanction" \| "NOC from Bank" \| "Khatauni" \| "Khasra / Map" \| "Mutation (Dakhil-Kharij)" \| "Encumbrance Certificate" \| "Layout Approval" \| "NOC" \| "Sale Deed / Registry" \| "Stamp Duty Receipt" \| "Registry Fee Receipt" \| "Possession Letter" \| "Completion Certificate" \| "Property Documents" \| "Requirement" \| "Brochure" \| "Sales Report" \| "Daily Log" \| "Lead Papers" \| "Bank Statement" \| "Invoice / Bill" \| "Office Agreement" \| "Tax / GST" \| "Salary Records" \| "ID / KYC" \| "Tax / ITR" \| "Property Papers" \| "Insurance" \| "Other" \| string |  |
 
 ### documentUploadFields
 
@@ -565,7 +574,7 @@ Automatic daily database backups: list, back up now, download (admin, dashboard 
 | --- | --- | --- |
 | `entity_type` | "lead" \| "customer" \| "property" \| "deal" \| "site_visit" | yes |
 | `entity_id` | integer | yes |
-| `doc_type` | "Aadhaar" \| "PAN" \| "Agreement" \| "Booking Form" \| "Payment Receipt" \| "Property Documents" \| "ID Proof" \| "Requirement" \| "Photo" \| "Brochure" \| "Other" | yes |
+| `doc_type` | "Aadhaar" \| "PAN" \| "ID Proof" \| "Photo" \| "Booking Form" \| "Allotment Letter" \| "Agreement" \| "Payment Plan" \| "Payment Receipt" \| "Bank Loan Sanction" \| "NOC from Bank" \| "Khatauni" \| "Khasra / Map" \| "Mutation (Dakhil-Kharij)" \| "Encumbrance Certificate" \| "Layout Approval" \| "NOC" \| "Sale Deed / Registry" \| "Stamp Duty Receipt" \| "Registry Fee Receipt" \| "Possession Letter" \| "Completion Certificate" \| "Property Documents" \| "Requirement" \| "Brochure" \| "Sales Report" \| "Daily Log" \| "Lead Papers" \| "Bank Statement" \| "Invoice / Bill" \| "Office Agreement" \| "Tax / GST" \| "Salary Records" \| "ID / KYC" \| "Tax / ITR" \| "Property Papers" \| "Insurance" \| "Other" | yes |
 | `name` | string |  |
 
 ### followupBody
@@ -749,7 +758,7 @@ Automatic daily database backups: list, back up now, download (admin, dashboard 
 
 | Field | Type | Required |
 | --- | --- | --- |
-| `doc_type` | "Aadhaar" \| "PAN" \| "ID Proof" \| "Requirement" \| "Other" | yes |
+| `doc_type` | "Aadhaar" \| "PAN" \| "ID Proof" \| "Photo" \| "Bank Loan Sanction" \| "Requirement" \| "Other" | yes |
 | `name` | string |  |
 
 ### profileBody

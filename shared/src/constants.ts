@@ -90,7 +90,10 @@ export const DOCUMENT_TYPES = [
   'Payment Receipt', 'Bank Loan Sanction', 'NOC from Bank',
   'Khatauni', 'Khasra / Map', 'Mutation (Dakhil-Kharij)', 'Encumbrance Certificate', 'Layout Approval', 'NOC',
   'Sale Deed / Registry', 'Stamp Duty Receipt', 'Registry Fee Receipt', 'Possession Letter', 'Completion Certificate',
-  'Property Documents', 'Requirement', 'Brochure', 'Other',
+  'Property Documents', 'Requirement', 'Brochure',
+  'Sales Report', 'Daily Log', 'Lead Papers', 'Bank Statement', 'Invoice / Bill', 'Office Agreement', 'Tax / GST', 'Salary Records',
+  'ID / KYC', 'Tax / ITR', 'Property Papers', 'Insurance',
+  'Other',
 ] as const;
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 /**
@@ -107,6 +110,15 @@ export const DOCUMENT_SECTIONS: { key: string; title: string; hindi: string; typ
 ];
 /** The section a document type belongs to (unknown or old types fall under Other). */
 export const documentSection = (type: string) => DOCUMENT_SECTIONS.find((s) => (s.types as string[]).includes(type)) ?? DOCUMENT_SECTIONS.at(-1)!;
+/**
+ * Papers the owner and accountant keep for themselves, never shown to customers or sales staff.
+ * Office is shared between administrators and accounts; Personal is seen only by the person who uploaded it.
+ */
+export const PRIVATE_FOLDERS = [
+  { key: 'office', title: 'Office', hindi: 'ऑफ़िस', note: 'Shared by administrators and accounts', types: ['Sales Report', 'Daily Log', 'Lead Papers', 'Bank Statement', 'Invoice / Bill', 'Office Agreement', 'Tax / GST', 'Salary Records', 'Other'] },
+  { key: 'personal', title: 'Personal', hindi: 'पर्सनल', note: 'Only you can see these', types: ['ID / KYC', 'Bank Statement', 'Tax / ITR', 'Property Papers', 'Insurance', 'Other'] },
+] as const satisfies readonly { key: string; title: string; hindi: string; note: string; types: readonly DocumentType[] }[];
+export type PrivateFolder = (typeof PRIVATE_FOLDERS)[number]['key'];
 export const CUSTOMER_UPLOAD_TYPES = ['Aadhaar', 'PAN', 'ID Proof', 'Photo', 'Bank Loan Sanction', 'Requirement', 'Other'] as const;
 export const DOCUMENT_ENTITIES = ['lead', 'customer', 'property', 'deal', 'site_visit'] as const;
 export type DocumentEntity = (typeof DOCUMENT_ENTITIES)[number];
