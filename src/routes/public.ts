@@ -104,7 +104,7 @@ export async function createWebsiteLead(
 }
 
 // ─── Public website ──────────────────────────────────────────────────────
-const PUBLIC_FIELDS = `p.id, p.slug, p.name, p.project, p.type, p.location, p.city, p.unit_number, p.tower, p.floor, p.bedrooms, p.bathrooms,
+const PUBLIC_FIELDS = `p.id, p.slug, p.name, p.project, p.type, p.location, p.city, p.unit_number, p.block, p.rate_per_sqft, p.tower, p.floor, p.bedrooms, p.bathrooms,
   p.area_sqft, p.price, p.status, p.facing, p.furnishing, p.parking, p.possession, p.construction_stage, p.rera_number, p.description, p.amenities, p.is_published`;
 const optEnum = <T extends readonly [string, ...string[]]>(v: T) => z.enum(v).optional().or(z.literal('').transform(() => undefined));
 const listQuery = z.object({

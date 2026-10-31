@@ -77,7 +77,7 @@ export interface ServerMeta {
 }
 
 // ─── CRM ─────────────────────────────────────────────────────────────────
-export interface Lead {
+export interface Lead extends LeadScoreFields {
   id: number;
   code: string;
   name: string;
@@ -192,6 +192,13 @@ export interface Property {
   unit_number: string;
   block?: string | null;
   rate_per_sqft?: number | null;
+  /** A hold ("Reserved") ends at this time and the unit returns to Available unless it is booked. */
+  hold_until?: string | null;
+  hold_by?: number | null;
+  hold_by_name?: string | null;
+  hold_lead_id?: number | null;
+  hold_lead_name?: string | null;
+  hold_note?: string | null;
   tower?: string | null;
   floor?: number | null;
   bedrooms?: number | null;
@@ -430,6 +437,9 @@ export interface PlotMapUnit {
   area_sqft: number;
   price: number;
   customer_name?: string | null;
+  hold_until?: string | null;
+  hold_by_name?: string | null;
+  hold_lead_name?: string | null;
 }
 export interface PropertyHistoryEntry {
   customer_id: number;
@@ -638,4 +648,67 @@ export interface RealtimeEvent {
   id?: number;
   at: string;
   notification?: NotificationItem;
+}
+
+/** Lead fields added by the server's scoring (see leadHeat in scoring.ts). */
+export interface LeadScoreFields {
+  score?: number;
+  idle_days?: number;
+  stuck?: boolean;
+  score_reason?: string;
+  referred_by_customer_id?: number | null;
+  referred_by_name?: string | null;
+}
+export interface PriceListEntry {
+  id: number;
+  project: string;
+  block: string;
+  rate_per_sqft: number;
+  effective_from: string;
+  note?: string | null;
+  units_updated: number;
+  created_by_name?: string | null;
+  created_at: string;
+}
+export interface Refund {
+  id: number;
+  customer_id: number;
+  customer_name?: string;
+  customer_code?: string;
+  property_project?: string | null;
+  property_unit?: string | null;
+  receipt_number: string | null;
+  paid_total: number;
+  deduction: number;
+  deduction_reason?: string | null;
+  refund_amount: number;
+  method: string;
+  reference?: string | null;
+  refund_date: string;
+  notes?: string | null;
+  created_by_name?: string | null;
+  created_at: string;
+}
+export interface FeedbackItem {
+  id: number;
+  kind: 'site_visit' | 'possession' | 'general';
+  rating: number;
+  comment?: string | null;
+  customer_id?: number | null;
+  customer_name?: string | null;
+  lead_id?: number | null;
+  lead_name?: string | null;
+  site_visit_id?: number | null;
+  agent_id?: number | null;
+  agent_name?: string | null;
+  given_by: string;
+  created_at: string;
+}
+export interface Referral {
+  id: number;
+  code: string;
+  name: string;
+  phone: string;
+  status: string;
+  created_at: string;
 }

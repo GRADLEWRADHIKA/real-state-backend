@@ -542,3 +542,39 @@ export const settingsSchemas = {
 export type ConvertData = z.infer<typeof convertBody>;
 export type PaymentData = z.infer<typeof paymentBody>;
 export type LeadData = z.infer<typeof leadBody>;
+
+// ─── Sales tools ─────────────────────────────────────────────
+export const holdBody = z.object({
+  days: z.coerce.number().int().min(1, 'at least 1 day').max(15, 'at most 15 days'),
+  lead_id: zId.optional().nullable().or(z.literal('').transform(() => null)),
+  note: zOptStr,
+});
+export const priceListBody = z.object({
+  project: z.string().trim().min(2, 'is required').max(80),
+  block: z.string().trim().max(30).default(''),
+  rate_per_sqft: zMoney.refine((n) => n > 0, 'must be more than zero'),
+  effective_from: zDate,
+  note: zOptStr,
+  /** Re-price the unsold (available and on-hold) units in this project and block at the new rate. */
+  apply_to_unsold: z.coerce.boolean().default(true),
+});
+export const refundBody = z.object({
+  deduction: zMoney.default(0),
+  deduction_reason: zOptStr,
+  method: z.enum(PAYMENT_METHODS),
+  reference: zOptStr,
+  refund_date: zDate,
+  notes: zOptStr,
+});
+export const FEEDBACK_KINDS = ['site_visit', 'possession', 'general'] as const;
+export const feedbackBody = z.object({
+  rating: z.coerce.number().int().min(1, 'choose 1 to 5').max(5, 'choose 1 to 5'),
+  comment: z.string().trim().max(1000).optional().nullable(),
+});
+export const visitFeedbackBody = feedbackBody.extend({ site_visit_id: zId });
+export const portalFeedbackBody = feedbackBody.extend({ kind: z.enum(['possession', 'general']) });
+export const referralBody = z.object({
+  name: z.string().trim().min(2, 'is required').max(80),
+  phone: zPhone,
+  note: z.string().trim().max(500).optional().nullable(),
+});

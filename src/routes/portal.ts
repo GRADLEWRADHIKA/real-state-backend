@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { Router } from 'express';
-import { customerRequestBody, portalUploadFields } from '@estateflow/shared';
+import { customerRequestBody, normalizePhone, portalFeedbackBody, portalUploadFields, referralBody } from '@estateflow/shared';
 import { db } from '../db/index.js';
 import { authorize } from '../middleware/auth.js';
 import { HttpError, parse } from '../utils/http.js';
@@ -11,6 +11,8 @@ import { customerFinancials, syncInstallmentStatuses } from '../services/payment
 import { getSettings } from '../services/settings.js';
 import { upload, verifyUploadedFile } from '../services/documents.js';
 import { realtime } from '../services/realtime.js';
+import { findDuplicates, insertWithCode } from '../services/leads.js';
+import { nextAssignee } from '../services/assignment.js';
 import { withImages } from '../images/store.js';
 
 /** The customer's own view: everything is keyed on the customer record linked to the login. */
@@ -75,6 +77,77 @@ r.get('/', async (req, res) => {
 r.get('/requests', async (req, res) => {
   const cid = customerId(req);
   res.json({ data: await db.all(`${REQUEST_SELECT} WHERE r.customer_id = ? ORDER BY r.created_at DESC`, [cid]) });
+});
+
+// ─── Feedback ─────────────────────────────────────────────────────────────
+r.get('/feedback', async (req, res) => {
+  const cid = customerId(req);
+  res.json({ data: await db.all("SELECT id, kind, rating, comment, created_at FROM feedback WHERE customer_id = ? AND kind != 'site_visit' ORDER BY created_at DESC", [cid]) });
+});
+
+/** The buyer rates possession (once) or the service in general (any time). */
+r.post('/feedback', async (req, res) => {
+  const cid = customerId(req);
+  const body = parse(portalFeedbackBody, req.body);
+  const customer = await db.get('SELECT id, name, assigned_to, lead_id FROM customers WHERE id = ?', [cid]);
+  if (body.kind === 'possession' && (await db.get("SELECT id FROM feedback WHERE customer_id = ? AND kind = 'possession'", [cid]))) {
+    throw new HttpError(409, 'You have already rated your possession. Thank you!');
+  }
+  const id = await db.insert('feedback', {
+    kind: body.kind,
+    rating: body.rating,
+    comment: body.comment ?? null,
+    customer_id: cid,
+    lead_id: customer.lead_id,
+    agent_id: customer.assigned_to,
+    given_by: 'customer',
+    created_by: req.user.id,
+    created_at: nowIso(),
+  });
+  await logActivity({ customer_id: cid, lead_id: customer.lead_id, type: 'feedback', title: `${body.kind === 'possession' ? 'Possession' : 'Service'} rated ${body.rating}/5`, description: body.comment ?? null, user_id: req.user.id });
+  await notifyRoles(['admin', 'manager'], {
+    type: body.rating <= 2 ? 'alert' : 'info',
+    title: body.rating <= 2 ? 'Low customer rating' : 'New customer feedback',
+    message: `${customer.name} rated ${body.kind === 'possession' ? 'possession' : 'our service'} ${body.rating}/5${body.comment ? `: ${body.comment}` : ''}.`,
+    link: '/feedback',
+  });
+  res.status(201).json(await db.get('SELECT id, kind, rating, comment, created_at FROM feedback WHERE id = ?', [id]));
+});
+
+// ─── Referrals ────────────────────────────────────────────────────────────
+r.get('/referrals', async (req, res) => {
+  const cid = customerId(req);
+  res.json({ data: await db.all('SELECT id, code, name, phone, status, created_at FROM leads WHERE referred_by_customer_id = ? ORDER BY created_at DESC', [cid]) });
+});
+
+/** A buyer refers a friend: the friend becomes a lead tagged to them, with their relationship manager. */
+r.post('/referrals', async (req, res) => {
+  const cid = customerId(req);
+  const body = parse(referralBody, req.body);
+  const customer = await db.get('SELECT id, code, name, assigned_to, lead_id FROM customers WHERE id = ?', [cid]);
+  if ((await findDuplicates(body.phone)).length) throw new HttpError(409, 'phone: This number is already with our sales team. Thank you for the referral!');
+  const agent = (customer.assigned_to && (await db.get("SELECT id FROM users WHERE id = ? AND status = 'Active'", [customer.assigned_to]))?.id) || (await nextAssignee());
+  const now = nowIso();
+  const id = await insertWithCode('leads', {
+    name: body.name,
+    phone: body.phone,
+    phone_norm: normalizePhone(body.phone),
+    source: 'Referral',
+    source_detail: `Referred by ${customer.name} (${customer.code})`,
+    requirement: body.note ?? null,
+    status: 'New',
+    priority: 'Warm',
+    assigned_to: agent ?? null,
+    referred_by_customer_id: cid,
+    created_at: now,
+    updated_at: now,
+  });
+  await logActivity({ lead_id: id, type: 'created', title: 'Lead created', description: `Referred by customer ${customer.name} (${customer.code})${body.note ? ` · ${body.note}` : ''}`, user_id: req.user.id });
+  await logActivity({ customer_id: cid, lead_id: customer.lead_id, type: 'referral', title: `Referred ${body.name}`, user_id: req.user.id });
+  const n = { type: 'lead', title: 'New referral', message: `${customer.name} referred ${body.name} (${body.phone}).`, link: `/leads/${id}`, trigger: 'lead_assigned' as const };
+  if (agent) await notifyUsers([agent], n);
+  await notifyRoles(['manager'], n);
+  res.status(201).json(await db.get('SELECT id, code, name, phone, status, created_at FROM leads WHERE id = ?', [id]));
 });
 
 r.post('/requests', async (req, res) => {

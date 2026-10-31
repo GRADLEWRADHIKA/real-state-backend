@@ -7,3 +7,4 @@ export * from './schedule.js';
 export * from './csv.js';
 export * from './version.js';
 export * from './api/client.js';
+export * from './scoring.js';

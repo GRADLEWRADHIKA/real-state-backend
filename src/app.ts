@@ -36,6 +36,9 @@ import expenseRoutes from './routes/expenses.js';
 import staffRoutes from './routes/staff.js';
 import backupRoutes from './routes/backups.js';
 import vaultRoutes from './routes/vault.js';
+import priceListRoutes from './routes/priceList.js';
+import refundRoutes from './routes/refunds.js';
+import feedbackRoutes from './routes/feedback.js';
 
 const toMatcher = (o: string) => (o.includes('*') ? new RegExp(`^${o.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[a-z0-9-]+')}$`, 'i') : o);
 
@@ -129,6 +132,9 @@ export function createApp() {
   api.use('/staff', staffRoutes);
   api.use('/backups', backupRoutes);
   api.use('/vault', vaultRoutes);
+  api.use('/price-list', priceListRoutes);
+  api.use('/refunds', refundRoutes);
+  api.use('/feedback', feedbackRoutes);
   app.use('/api', api);
   app.use('/api', notFoundHandler);
 

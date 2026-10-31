@@ -71,6 +71,7 @@ Leads, pipeline board, duplicates and merge, CSV import/export, conversion to a 
 | Method | Path | Roles | Body | Query | Notes |
 | --- | --- | --- | --- | --- | --- |
 | GET | `/api/leads` | admin, manager, sales |  | [leadListQuery](#leadlistquery) |  |
+| GET | `/api/leads/insights` | admin, manager, sales |  |  |  |
 | GET | `/api/leads/export.csv` | admin, manager |  | [leadListQuery](#leadlistquery) | dashboard only |
 | GET | `/api/leads/board` | admin, manager, sales |  |  |  |
 | GET | `/api/leads/duplicates` | admin, manager, sales |  |  |  |
@@ -124,6 +125,8 @@ Inventory.
 | GET | `/api/properties/:id` | admin, manager, sales, accounts |  |  |  |
 | POST | `/api/properties` | admin, manager | [propertyBody](#propertybody) |  | admin read-only in app |
 | PUT | `/api/properties/:id` | admin, manager | [propertyBody](#propertybody) |  | admin read-only in app |
+| POST | `/api/properties/:id/hold` | admin, manager, sales |  |  | admin read-only in app |
+| POST | `/api/properties/:id/release` | admin, manager, sales |  |  | admin read-only in app |
 | DELETE | `/api/properties/:id` | admin |  |  | admin read-only in app |
 | GET | `/api/properties/:id/images` | admin, manager, sales, accounts |  |  |  |
 | POST | `/api/properties/:id/images` | admin, manager |  |  | admin read-only in app, multipart: file |
@@ -265,6 +268,10 @@ The customer's own view in the app: property, payments, documents and requests.
 | --- | --- | --- | --- | --- | --- |
 | GET | `/api/portal` | customer |  |  |  |
 | GET | `/api/portal/requests` | customer |  |  |  |
+| GET | `/api/portal/feedback` | customer |  |  |  |
+| POST | `/api/portal/feedback` | customer |  |  |  |
+| GET | `/api/portal/referrals` | customer |  |  |  |
+| POST | `/api/portal/referrals` | customer |  |  |  |
 | POST | `/api/portal/requests` | customer | [customerRequestBody](#customerrequestbody) |  |  |
 | POST | `/api/portal/documents` | customer | [portalUploadFields](#portaluploadfields) |  | multipart: file |
 
@@ -337,6 +344,35 @@ Staff salary (due, paid, left), attendance (self check-in/out and marking) and m
 | GET | `/api/staff/attendance/me` | admin, manager, sales, accounts |  |  |  |
 | POST | `/api/staff/attendance/check-in` | admin, manager, sales, accounts |  |  | admin read-only in app |
 | POST | `/api/staff/attendance/check-out` | admin, manager, sales, accounts |  |  | admin read-only in app |
+
+## price-list
+
+Rates per project and block with their history; a new rate can re-price unsold units.
+
+| Method | Path | Roles | Body | Query | Notes |
+| --- | --- | --- | --- | --- | --- |
+| GET | `/api/price-list` | admin, manager, sales, accounts |  |  |  |
+| POST | `/api/price-list` | admin, manager |  |  |  |
+
+## refunds
+
+Refunds on cancelled bookings, with deductions and refund receipts.
+
+| Method | Path | Roles | Body | Query | Notes |
+| --- | --- | --- | --- | --- | --- |
+| GET | `/api/refunds` | admin, manager, accounts |  |  |  |
+| GET | `/api/refunds/customer/:id` | admin, manager, accounts |  |  |  |
+| POST | `/api/refunds/customer/:id` | admin, accounts |  |  |  |
+| GET | `/api/refunds/:id/receipt.pdf` | admin, manager, accounts |  |  |  |
+
+## feedback
+
+Ratings after site visits and from customers, for managers.
+
+| Method | Path | Roles | Body | Query | Notes |
+| --- | --- | --- | --- | --- | --- |
+| GET | `/api/feedback` | admin, manager |  |  |  |
+| POST | `/api/feedback/site-visit` | admin, manager, sales |  |  |  |
 
 ## vault
 

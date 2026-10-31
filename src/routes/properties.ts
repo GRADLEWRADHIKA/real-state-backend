@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import path from 'node:path';
-import { generateImagesBody, propertyBody, propertyImageOrder, propertyImageUpdate, propertyListQuery } from '@estateflow/shared';
+import { generateImagesBody, holdBody, propertyBody, propertyImageOrder, propertyImageUpdate, propertyListQuery } from '@estateflow/shared';
 import { config } from '../config.js';
 import { log } from '../logger.js';
 import { generateInBackground, generateForProperty, isGenerating } from '../images/generate.js';
@@ -9,17 +9,20 @@ import { uniqueSlug } from '../images/slug.js';
 import { IMAGE_EXT, addImage, deleteImages, removePropertyImageFiles, reorderImages, setCover, sniffImage, toDto, withImages } from '../images/store.js';
 import { db } from '../db/index.js';
 import { adminAppReadOnly, authorize } from '../middleware/auth.js';
-import { HttpError, idParam, likeParam, notFound, orderBy, pageMeta, paging, parse, parseQuery } from '../utils/http.js';
+import { HttpError, forbidden, idParam, likeParam, notFound, orderBy, pageMeta, paging, parse, parseQuery } from '../utils/http.js';
 import { nowIso } from '../utils/dates.js';
 import { insertWithCode } from '../services/leads.js';
 import { portalUserFor, notifyUsers } from '../services/notifications.js';
 import { realtime } from '../services/realtime.js';
+import { logActivity } from '../services/activity.js';
 
 const r = Router();
 r.use(authorize('admin', 'manager', 'sales', 'accounts'), adminAppReadOnly);
 
 const SELECT = `
   SELECT p.*, u.name AS agent_name,
+    (SELECT name FROM users WHERE id = p.hold_by) AS hold_by_name,
+    (SELECT name FROM leads WHERE id = p.hold_lead_id) AS hold_lead_name,
     (SELECT COUNT(*) FROM leads l WHERE l.property_id = p.id AND l.status NOT IN ('Lost')) AS interested_count,
     (SELECT c.name FROM customers c WHERE c.property_id = p.id AND c.status != 'Cancelled' ORDER BY c.id DESC LIMIT 1) AS customer_name,
     (SELECT d.id FROM documents d WHERE d.entity_type = 'property' AND d.entity_id = p.id AND d.mime LIKE 'image/%' ORDER BY d.created_at LIMIT 1) AS cover_document_id
@@ -81,7 +84,8 @@ r.get('/', async (req, res) => {
 /** Plot map: every unit with its status, for the colour-coded layout grouped by project and block. */
 r.get('/map', async (_req, res) => {
   const data = await db.all(
-    `SELECT p.id, p.project, p.block, p.unit_number, p.type, p.status, p.area_sqft, p.price,
+    `SELECT p.id, p.project, p.block, p.unit_number, p.type, p.status, p.area_sqft, p.price, p.hold_until,
+       (SELECT name FROM users WHERE id = p.hold_by) AS hold_by_name, (SELECT name FROM leads WHERE id = p.hold_lead_id) AS hold_lead_name,
        (SELECT c.name FROM customers c WHERE c.property_id = p.id AND c.status != 'Cancelled' ORDER BY c.id DESC LIMIT 1) AS customer_name
      FROM properties p ORDER BY p.project, COALESCE(p.block, ''), length(p.unit_number), p.unit_number`,
   );
@@ -170,6 +174,43 @@ r.put('/:id', authorize('admin', 'manager'), async (req, res) => {
       realtime.change(['portal'], { userIds: [portal.id] });
     }
   }
+  res.json(await withGallery(await db.get(`${SELECT} WHERE p.id = ?`, [id])));
+});
+
+/**
+ * Hold a unit for a buyer for a few days: it shows as Reserved ("Hold") and returns to Available on its
+ * own when the hold ends, unless it has been booked by then (the scheduler releases expired holds).
+ */
+r.post('/:id/hold', authorize('admin', 'manager', 'sales'), async (req, res) => {
+  const id = idParam(req);
+  const data = parse(holdBody, req.body);
+  const unit = await db.get('SELECT * FROM properties WHERE id = ?', [id]);
+  if (!unit) throw notFound('Property');
+  if (unit.status === 'Booked' || unit.status === 'Sold') throw new HttpError(409, `This unit is already ${unit.status.toLowerCase()}`);
+  if (unit.status === 'Reserved' && unit.hold_by && unit.hold_by !== req.user.id && req.user.role === 'sales') {
+    throw new HttpError(409, `This unit is on hold until ${unit.hold_until?.slice(0, 10)} for another executive`);
+  }
+  if (data.lead_id) {
+    const lead = await db.get('SELECT assigned_to FROM leads WHERE id = ?', [data.lead_id]);
+    if (!lead) throw new HttpError(422, 'lead_id: Unknown lead');
+    if (req.user.role === 'sales' && lead.assigned_to !== req.user.id) throw forbidden('You can only hold units for your own leads');
+  }
+  const until = new Date(Date.now() + data.days * 86_400_000).toISOString();
+  await db.update('properties', id, { status: 'Reserved', hold_until: until, hold_by: req.user.id, hold_lead_id: data.lead_id ?? null, hold_note: data.note ?? null, updated_at: nowIso() });
+  await logActivity({ property_id: id, lead_id: data.lead_id ?? null, type: 'hold', title: `On hold for ${data.days} day${data.days === 1 ? '' : 's'}`, description: data.note ?? undefined, user_id: req.user.id });
+  realtimeProps();
+  res.json(await withGallery(await db.get(`${SELECT} WHERE p.id = ?`, [id])));
+});
+
+r.post('/:id/release', authorize('admin', 'manager', 'sales'), async (req, res) => {
+  const id = idParam(req);
+  const unit = await db.get('SELECT * FROM properties WHERE id = ?', [id]);
+  if (!unit) throw notFound('Property');
+  if (unit.status !== 'Reserved') throw new HttpError(409, 'This unit is not on hold');
+  if (req.user.role === 'sales' && unit.hold_by !== req.user.id) throw forbidden('Only the executive who placed the hold, or a manager, can release it');
+  await db.update('properties', id, { status: 'Available', hold_until: null, hold_by: null, hold_lead_id: null, hold_note: null, updated_at: nowIso() });
+  await logActivity({ property_id: id, type: 'hold', title: 'Hold released', user_id: req.user.id });
+  realtimeProps();
   res.json(await withGallery(await db.get(`${SELECT} WHERE p.id = ?`, [id])));
 });
 

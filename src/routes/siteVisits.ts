@@ -64,7 +64,9 @@ r.get('/', async (req, res) => {
 r.get('/:id', async (req, res) => {
   const v = await getVisitFor(idParam(req), req.user);
   const photos = await db.all("SELECT id, name, doc_type, mime, size, created_at FROM documents WHERE entity_type = 'site_visit' AND entity_id = ? ORDER BY created_at", [v.id]);
-  res.json({ ...v, photo_documents: photos });
+  // The visitor's own rating (feedback table); the visit's \`feedback\` column is the executive's note.
+  const rated = await db.get<{ rating: number; comment: string | null }>('SELECT rating, comment FROM feedback WHERE site_visit_id = ?', [v.id]);
+  res.json({ ...v, photo_documents: photos, visitor_rating: rated?.rating ?? null, visitor_comment: rated?.comment ?? null });
 });
 
 r.post('/', async (req, res) => {

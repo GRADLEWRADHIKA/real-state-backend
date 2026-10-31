@@ -740,6 +740,40 @@ async function seedPlotCrm(ids: Record<string, number>) {
     }
   }
 
+  // Price list: the rates per plot block, with one earlier rate kept in the history.
+  for (const [block, old, now] of [['A', 1550, 1650], ['B', 1950, 2100], ['C', 1700, 1800]] as const) {
+    await db.insert('price_list', { project: 'Green Valley Plots', block, rate_per_sqft: old, effective_from: D(-210), note: 'Launch price', units_updated: 0, created_by: ids['u:neha'], created_at: DT(-210) });
+    await db.insert('price_list', { project: 'Green Valley Plots', block, rate_per_sqft: now, effective_from: D(-45), note: 'Revised after road work', units_updated: 0, created_by: ids['u:neha'], created_at: DT(-45) });
+  }
+
+  // One plot on hold for a hot lead, ending in two days.
+  const held = await db.get<{ id: number }>("SELECT id FROM properties WHERE type = 'Plot' AND status = 'Available' ORDER BY id LIMIT 1");
+  const holdLead = await db.get<{ id: number }>("SELECT id FROM leads WHERE assigned_to = ? AND status IN ('Negotiation','Site Visit','Qualified') ORDER BY id LIMIT 1", [ids['u:rahul']]);
+  if (held) await db.update('properties', held.id, { status: 'Reserved', hold_until: new Date(Date.now() + 2 * 86_400_000).toISOString(), hold_by: ids['u:rahul'], hold_lead_id: holdLead?.id ?? null, hold_note: 'Family deciding this weekend' });
+
+  // Feedback: visitors after site visits, and Amit on the service so far.
+  const visits = await db.all<{ id: number; lead_id: number; agent_id: number }>("SELECT id, lead_id, agent_id FROM site_visits WHERE status = 'Completed' ORDER BY id LIMIT 5");
+  const said: [number, string][] = [[5, 'Rahul explained the payment plan clearly'], [4, 'Good location, road still under work'], [5, 'Liked the villa layout'], [3, 'Had to wait 30 minutes at the site'], [2, 'Pick-up was late and the site office was closed']];
+  for (const [i, v] of visits.entries()) {
+    await db.insert('feedback', { kind: 'site_visit', rating: said[i][0], comment: said[i][1], lead_id: v.lead_id, site_visit_id: v.id, agent_id: v.agent_id, given_by: 'visitor', created_by: v.agent_id, created_at: DT(-20 + i * 3) });
+  }
+  if (ids['c:Amit Sharma']) {
+    await db.insert('feedback', { kind: 'general', rating: 4, comment: 'Construction updates are regular. Would like more photos.', customer_id: ids['c:Amit Sharma'], agent_id: ids['u:rahul'], given_by: 'customer', created_by: ids['u:amit'], created_at: DT(-6) });
+    // Amit referred a colleague, now a lead with his relationship manager.
+    await db.insert('leads', { code: 'LD-REF1', name: 'Nitin Saxena', phone: '+91 94153 77120', phone_norm: '9415377120', source: 'Referral', source_detail: 'Referred by Amit Sharma', status: 'Contacted', priority: 'Warm', assigned_to: ids['u:rahul'], referred_by_customer_id: ids['c:Amit Sharma'], last_contact: DT(-3), created_at: DT(-9), updated_at: DT(-3) });
+  }
+
+  // A cancelled booking whose payments are still to be refunded: the accountant's refund queue.
+  const cancel = ids['c:Priyanka Shukla'];
+  if (cancel) {
+    const c = await db.get<{ property_id: number; lead_id: number | null }>('SELECT property_id, lead_id FROM customers WHERE id = ?', [cancel]);
+    await db.update('customers', cancel, { status: 'Cancelled', cancelled_at: DT(-5), cancel_reason: 'Customer moved to Pune for work', updated_at: DT(-5) });
+    await db.run("UPDATE deals SET status = 'Cancelled', closed_at = ? WHERE customer_id = ?", [DT(-5), cancel]);
+    await db.run('DELETE FROM installments WHERE customer_id = ? AND paid_amount = 0', [cancel]);
+    if (c?.property_id) await db.update('properties', c.property_id, { status: 'Available' });
+    if (c?.lead_id) await db.update('leads', c.lead_id, { status: 'Lost', lost_reason: 'Booking cancelled: Customer moved to Pune for work' });
+  }
+
   // Attendance for the last 10 days, plus a partly marked today.
   const staff = ['neha', 'rahul', 'priya', 'arjun', 'sneha', 'karan', 'pooja', 'manish'];
   for (let day = -10; day <= 0; day++) {

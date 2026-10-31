@@ -230,3 +230,94 @@ export function tablePdf(opts: { title: string; subtitle?: string; company: stri
   }
   return Buffer.from(doc.output('arraybuffer'));
 }
+
+export interface RefundPdfData {
+  receipt_number: string;
+  refund_date: string;
+  customer: { name: string; code: string; phone: string; address?: string | null };
+  property?: string | null;
+  cancelled_at?: string | null;
+  cancel_reason?: string | null;
+  paid_total: number;
+  deduction: number;
+  deduction_reason?: string | null;
+  refund_amount: number;
+  method: string;
+  reference?: string | null;
+  company: { name: string; address: string; phone: string; email: string; website: string };
+}
+
+/** Refund receipt for a cancelled booking: what was paid, what was deducted and why, and what was returned. */
+export function refundPdf(r: RefundPdfData): Buffer {
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  const W = doc.internal.pageSize.getWidth();
+  const M = 48;
+  doc.setProperties({ title: `Refund ${r.receipt_number}`, creator: 'EstateFlow CRM' });
+  doc.setFillColor(...GREEN);
+  doc.rect(0, 0, W, 110, 'F');
+  const img = logoData();
+  if (img) doc.addImage(img, 'PNG', M, 22, 66, 66);
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(17);
+  doc.text(ascii(r.company.name) || 'Starwiz Realty', M + 82, 46);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  const addr = doc.splitTextToSize(ascii(r.company.address), 300);
+  doc.text(addr, M + 82, 61);
+  doc.text([r.company.phone, r.company.email, r.company.website].filter(Boolean).join('  |  '), M + 82, 61 + addr.length * 10 + 2);
+  doc.setTextColor(...GOLD);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.text('REFUND RECEIPT', W - M, 46, { align: 'right' });
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.text(`No. ${r.receipt_number}`, W - M, 62, { align: 'right' });
+  doc.text(`Date ${fmtDateLong(r.refund_date)}`, W - M, 75, { align: 'right' });
+
+  let y = 150;
+  doc.setTextColor(28, 27, 24);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.text('Refunded to', M, y);
+  doc.text('Booking', W / 2 + 10, y);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.text([ascii(r.customer.name), `Customer ID ${r.customer.code}`, r.customer.phone, ascii(r.customer.address ?? '')].filter(Boolean), M, y + 16);
+  doc.text(
+    [ascii(r.property ?? ''), r.cancelled_at ? `Cancelled ${fmtDateLong(r.cancelled_at)}` : '', ascii(r.cancel_reason ?? '')].filter(Boolean).map((t) => doc.splitTextToSize(t, W / 2 - M - 10)).flat(),
+    W / 2 + 10,
+    y + 16,
+  );
+
+  y = 260;
+  const row = (label: string, value: string, bold = false) => {
+    doc.setFont('helvetica', bold ? 'bold' : 'normal');
+    doc.setFontSize(bold ? 12 : 10.5);
+    doc.text(label, M, y);
+    doc.text(value, W - M, y, { align: 'right' });
+    y += bold ? 26 : 22;
+  };
+  doc.setDrawColor(225, 222, 216);
+  doc.line(M, y - 16, W - M, y - 16);
+  row('Total paid towards the booking', rs(r.paid_total));
+  row(`Less deduction${r.deduction_reason ? ` (${ascii(r.deduction_reason)})` : ''}`, r.deduction ? `- ${rs(r.deduction)}` : rs(0));
+  doc.line(M, y - 12, W - M, y - 12);
+  y += 4;
+  row('Amount refunded', rs(r.refund_amount), true);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.text(`In words: ${ascii(amountInWords(r.refund_amount))}`, M, y);
+  y += 18;
+  doc.text(`Paid by ${r.method}${r.reference ? `  ·  Ref ${ascii(r.reference)}` : ''}`, M, y);
+
+  y = 560;
+  doc.setFontSize(9);
+  doc.setTextColor(110, 106, 99);
+  doc.text('This refund settles the cancelled booking above. Please keep this receipt for your records.', M, y);
+  doc.setTextColor(28, 27, 24);
+  doc.text('Authorised signatory', W - M, y + 60, { align: 'right' });
+  doc.text(ascii(r.company.name), W - M, y + 74, { align: 'right' });
+  return Buffer.from(doc.output('arraybuffer'));
+}

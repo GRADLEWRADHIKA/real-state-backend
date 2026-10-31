@@ -1,4 +1,4 @@
-import { REGISTRY_REMINDER_DAYS, fmtTime, inr } from '@estateflow/shared';
+import { REGISTRY_REMINDER_DAYS, STUCK_LEAD_DAYS, fmtTime, inr, leadHeat } from '@estateflow/shared';
 import { dailyBackupIfDue } from './backup.js';
 import { config } from '../config.js';
 import { db } from '../db/index.js';
@@ -30,7 +30,7 @@ const minutesUntil = (date: string, time: string | null, now: Date) => (new Date
 
 export async function runScheduledJobs(now = new Date()) {
   const t = today();
-  const sent = { followups: 0, overdue: 0, visits: 0, installments: 0, digests: 0, registry: 0, salary: 0, backup: 0 };
+  const sent = { followups: 0, overdue: 0, visits: 0, installments: 0, digests: 0, registry: 0, salary: 0, backup: 0, holds: 0, stuck: 0 };
   await syncInstallmentStatuses(true);
 
   // Follow-ups: a reminder up to an hour before, then one "overdue" notice once the time has passed.
@@ -156,6 +156,28 @@ export async function runScheduledJobs(now = new Date()) {
         link: '/staff?tab=salary',
       });
       sent.salary++;
+    }
+  }
+
+  // Plot holds that have run out go back to Available (a unit booked meanwhile is no longer Reserved).
+  const expired = await db.all(
+    "SELECT id, project, unit_number, hold_by FROM properties WHERE status = 'Reserved' AND hold_until IS NOT NULL AND hold_until < ?",
+    [now.toISOString()],
+  );
+  for (const u of expired) {
+    await db.update('properties', u.id, { status: 'Available', hold_until: null, hold_by: null, hold_lead_id: null, hold_note: null, updated_at: nowIso() });
+    await db.insert('activities', { property_id: u.id, type: 'hold', title: 'Hold expired, unit available again', created_at: nowIso() });
+    if (u.hold_by) await notifyUsers([u.hold_by], { type: 'property', title: 'Hold expired', message: `${u.project} ${u.unit_number} is available again; the hold ended without a booking.`, link: `/properties/${u.id}` });
+    sent.holds++;
+  }
+
+  // Lead ageing: once a day, tell managers how many open leads nobody has contacted for a week.
+  if (now.getHours() >= 9 && (await claim('stuck_leads', 0, 0, t))) {
+    const open = await db.all("SELECT status, priority, budget, last_contact, created_at, next_followup FROM leads WHERE status NOT IN ('Booked','Closed','Lost')");
+    const stuck = open.filter((l) => leadHeat(l, t).stuck).length;
+    if (stuck) {
+      await notifyRoles(['admin', 'manager'], { type: 'alert', title: 'Stuck leads', message: `${stuck} open lead${stuck === 1 ? ' has' : 's have'} had no contact for ${STUCK_LEAD_DAYS} days or more.`, link: '/leads/insights' });
+      sent.stuck++;
     }
   }
 

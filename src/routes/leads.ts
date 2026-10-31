@@ -24,23 +24,31 @@ import { logActivity, notifyUsers } from '../services/activity.js';
 import { changeLeadStatus, convertLead, findDuplicates, insertWithCode } from '../services/leads.js';
 import { nextAssignee } from '../services/assignment.js';
 import { getSetting } from '../services/settings.js';
+import { STUCK_LEAD_DAYS, leadHeat } from '@estateflow/shared';
 
 const r = Router();
 r.use(authorize('admin', 'manager', 'sales'), adminAppReadOnly);
 
 const LEAD_SELECT = `
   SELECT l.*, p.name AS property_name, p.project AS property_project, p.unit_number AS property_unit, p.price AS property_price,
-         u.name AS agent_name
+         u.name AS agent_name, rc.name AS referred_by_name
   FROM leads l
   LEFT JOIN properties p ON p.id = l.property_id
-  LEFT JOIN users u ON u.id = l.assigned_to`;
+  LEFT JOIN users u ON u.id = l.assigned_to
+  LEFT JOIN customers rc ON rc.id = l.referred_by_customer_id`;
+
+/** Adds the lead's score, idle days and stuck flag (shared rules, so every screen shows the same). */
+export const withHeat = <T extends { status: string; created_at: string }>(l: T) => {
+  const h = leadHeat(l, today());
+  return { ...l, score: h.score, idle_days: h.idle_days, stuck: h.stuck, score_reason: h.reason };
+};
 
 /** Sales executives reach only leads assigned to them (list, detail and every sub-resource use this). */
 export async function getLeadFor(id: number, user: AuthUser) {
   const lead = await db.get(`${LEAD_SELECT} WHERE l.id = ?`, [id]);
   if (!lead) throw notFound('Lead');
   if (isScoped(user) && lead.assigned_to !== user.id) throw forbidden();
-  return lead;
+  return withHeat(lead);
 }
 
 const SORTS: Record<string, string> = {
@@ -93,7 +101,32 @@ r.get('/', async (req, res) => {
   const total = (await db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM leads l LEFT JOIN properties p ON p.id = l.property_id ${where}`, params))!.n;
   const data = await db.all(`${LEAD_SELECT} ${where} ORDER BY ${orderBy(SORTS, q.sort, q.order, 'l.created_at')} NULLS LAST, l.id DESC LIMIT ? OFFSET ?`, [...params, p.limit, p.offset]);
   const counts = await db.all(`SELECT l.status, COUNT(*) AS n FROM leads l ${base.where} GROUP BY l.status`, base.params);
-  res.json({ data, meta: pageMeta(total, p, { statusCounts: Object.fromEntries(counts.map((c) => [c.status, c.n])) }) });
+  res.json({ data: data.map(withHeat), meta: pageMeta(total, p, { statusCounts: Object.fromEntries(counts.map((c) => [c.status, c.n])) }) });
+});
+
+/**
+ * Lead ageing for the manager: open leads nobody has contacted for `days` days (stuck, longest idle
+ * first) and the hottest open leads by score. Sales executives get their own leads only.
+ */
+r.get('/insights', async (req, res) => {
+  const { days } = parseQuery(z.object({ days: z.coerce.number().int().min(1).max(90).default(STUCK_LEAD_DAYS) }), req);
+  const s = scope(req.user, 'l.assigned_to');
+  const open = await db.all(`${LEAD_SELECT} WHERE l.status NOT IN ('Booked','Closed','Lost')${s.sql}`, s.params);
+  const scored = open.map((l) => {
+    const h = leadHeat(l, today(), days);
+    return { ...l, score: h.score, idle_days: h.idle_days, stuck: h.stuck, score_reason: h.reason };
+  });
+  const stuck = scored.filter((l) => l.stuck).sort((a, b) => b.idle_days - a.idle_days || b.score - a.score);
+  const hot = scored.filter((l) => !l.stuck).sort((a, b) => b.score - a.score).slice(0, 10);
+  const byAgent = Object.values(
+    stuck.reduce<Record<string, { agent_id: number | null; agent_name: string; stuck: number }>>((acc, l) => {
+      const k = String(l.assigned_to ?? 0);
+      acc[k] ??= { agent_id: l.assigned_to ?? null, agent_name: l.agent_name ?? 'Unassigned', stuck: 0 };
+      acc[k].stuck++;
+      return acc;
+    }, {}),
+  ).sort((a, b) => b.stuck - a.stuck);
+  res.json({ days, open: scored.length, stuck, hot, byAgent });
 });
 
 r.get('/export.csv', authorize('admin', 'manager'), dashboardOnly, async (req, res) => {
