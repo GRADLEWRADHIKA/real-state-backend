@@ -46,8 +46,6 @@ r.get('/', async (req, res) => {
   const params: unknown[] = [];
   const t = today();
   if (mine(req.user.role)) { where += ' AND (t.assigned_to = ? OR t.created_by = ?)'; params.push(req.user.id, req.user.id); }
-  if (q.status === 'open') where += " AND t.status != 'Completed'";
-  else if (q.status) { where += ' AND t.status = ?'; params.push(q.status); }
   if (q.priority) { where += ' AND t.priority = ?'; params.push(q.priority); }
   if (q.assignee) { where += ' AND t.assigned_to = ?'; params.push(q.assignee); }
   if (q.mine === '1') { where += ' AND t.assigned_to = ?'; params.push(req.user.id); }
@@ -60,11 +58,11 @@ r.get('/', async (req, res) => {
   if (q.to) { where += ' AND t.due_date <= ?'; params.push(q.to); }
   if (q.q) { const like = likeParam(q.q); where += ' AND (t.title LIKE ? OR l.name LIKE ? OR cu.name LIKE ?)'; params.push(like, like, like); }
   const from = 'FROM tasks t LEFT JOIN leads l ON l.id = t.lead_id LEFT JOIN customers cu ON cu.id = t.customer_id';
+  // Tab counts follow every filter except the status itself.
+  const counts = await db.all(`SELECT t.status, COUNT(*) AS n ${from} ${where} GROUP BY t.status`, params);
+  if (q.status === 'open') where += " AND t.status != 'Completed'";
+  else if (q.status) { where += ' AND t.status = ?'; params.push(q.status); }
   const total = (await db.get<{ n: number }>(`SELECT COUNT(*) AS n ${from} ${where}`, params))!.n;
-  const counts = await db.all(
-    `SELECT t.status, COUNT(*) AS n FROM tasks t WHERE 1=1${mine(req.user.role) ? ' AND (t.assigned_to = ? OR t.created_by = ?)' : ''} GROUP BY t.status`,
-    mine(req.user.role) ? [req.user.id, req.user.id] : [],
-  );
   const data = await db.all(
     `${SELECT} ${where} ORDER BY CASE t.status WHEN 'Completed' THEN 1 ELSE 0 END,
       CASE t.priority WHEN 'Urgent' THEN 0 WHEN 'High' THEN 1 WHEN 'Medium' THEN 2 ELSE 3 END, t.due_date NULLS LAST, t.id DESC LIMIT ? OFFSET ?`,

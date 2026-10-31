@@ -11,7 +11,7 @@ import { audit } from '../services/activity.js';
 import { notifyRoles, notifyUsers } from '../services/notifications.js';
 import { getSetting } from '../services/settings.js';
 import { issueSession, revokeAllSessions, revokeRefreshToken, rotateSession, sha256 } from '../services/tokens.js';
-import { hashNewPassword, publicUser } from '../services/users.js';
+import { clearLoginFailures, hashNewPassword, publicUser, syncAccountLock } from '../services/users.js';
 
 const r = Router();
 
@@ -35,21 +35,30 @@ r.post('/login', authLimiter, async (req, res) => {
   const user = await db.get('SELECT * FROM users WHERE email = ?', [body.email]);
   const now = nowIso();
 
-  if (user?.locked_until && user.locked_until > now) {
-    const mins = Math.max(1, Math.ceil((new Date(user.locked_until).getTime() - Date.now()) / 60_000));
-    throw new HttpError(423, `Too many failed sign-in attempts. This account is locked for ${mins} more minute${mins > 1 ? 's' : ''}.`, { code: 'locked', until: user.locked_until });
+  // Failures are counted per account and network address: a stranger who knows an email address can
+  // only lock it from their own address, so the owner can still sign in from theirs.
+  const ip = req.ip ?? '';
+  const strike = user ? await db.get<{ failed: number; locked_until: string | null }>('SELECT failed, locked_until FROM login_failures WHERE user_id = ? AND ip = ?', [user.id, ip]) : undefined;
+  if (strike?.locked_until && strike.locked_until > now) {
+    const mins = Math.max(1, Math.ceil((new Date(strike.locked_until).getTime() - Date.now()) / 60_000));
+    throw new HttpError(423, `Too many failed sign-in attempts. Sign-in to this account from here is locked for ${mins} more minute${mins > 1 ? 's' : ''}.`, { code: 'locked', until: strike.locked_until });
   }
   const ok = await bcrypt.compare(body.password, user?.password_hash ?? DUMMY_HASH);
   if (!user || !ok) {
     if (user) {
-      const failed = (user.failed_logins ?? 0) + 1;
+      const failed = (strike?.failed ?? 0) + 1;
       // Lock after N failures; each further failure doubles the lock (capped at 24 h).
       const over = failed - security.max_failed_logins;
       const lockMin = over >= 0 ? Math.min(1440, security.lockout_minutes * 2 ** Math.min(6, over)) : 0;
-      await db.update('users', user.id, { failed_logins: failed, locked_until: lockMin ? new Date(Date.now() + lockMin * 60_000).toISOString() : null });
-      await audit({ user_id: user.id, action: 'login_failed', title: 'Failed sign-in', entity_type: 'user', entity_id: user.id, description: lockMin ? `Account locked for ${lockMin} min` : `${failed} failed attempt(s)`, ...ctx(req) });
+      await db.run(
+        `INSERT INTO login_failures (user_id, ip, failed, locked_until, updated_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(user_id, ip) DO UPDATE SET failed = excluded.failed, locked_until = excluded.locked_until, updated_at = excluded.updated_at`,
+        [user.id, ip, failed, lockMin ? new Date(Date.now() + lockMin * 60_000).toISOString() : null, now],
+      );
+      await syncAccountLock(user.id);
+      await audit({ user_id: user.id, action: 'login_failed', title: 'Failed sign-in', entity_type: 'user', entity_id: user.id, description: lockMin ? `Locked for ${lockMin} min from ${ip}` : `${failed} failed attempt(s)`, ...ctx(req) });
       if (lockMin && over === 0) {
-        await notifyRoles(['admin'], { type: 'alert', title: 'Account locked', message: `${user.name} (${user.email}) was locked after ${failed} failed sign-in attempts.`, link: '/users' });
+        await notifyRoles(['admin'], { type: 'alert', title: 'Account locked', message: `${user.name} (${user.email}) was locked after ${failed} failed sign-in attempts from ${ip}.`, link: '/users' });
       }
     }
     throw new HttpError(401, 'Incorrect email or password');
@@ -57,7 +66,9 @@ r.post('/login', authLimiter, async (req, res) => {
   if (user.status !== 'Active') throw new HttpError(403, 'Your account has been deactivated. Contact your administrator.', { code: 'inactive' });
   assertRoleOnClient(user.role, body.client);
 
-  await db.update('users', user.id, { last_login: now, failed_logins: 0, locked_until: null });
+  await db.run('DELETE FROM login_failures WHERE user_id = ? AND ip = ?', [user.id, ip]);
+  await db.update('users', user.id, { last_login: now });
+  await syncAccountLock(user.id);
   const session = await issueSession({ ...user, last_login: now }, body.client, body.remember, body.device ?? String(req.headers['user-agent'] ?? '').slice(0, 120), req.ip);
   await audit({ user_id: user.id, action: 'login', title: `Signed in to the ${body.client}`, entity_type: 'user', entity_id: user.id, ...ctx(req) });
   res.json(session);
@@ -122,7 +133,8 @@ r.post('/reset-password', authLimiter, async (req, res) => {
   }
   const hash = await hashNewPassword(body.new_password);
   await db.transaction(async () => {
-    await db.update('users', user.id, { password_hash: hash, password_changed_at: nowIso(), failed_logins: 0, locked_until: null });
+    await db.update('users', user.id, { password_hash: hash, password_changed_at: nowIso() });
+    await clearLoginFailures(user.id);
     await db.update('password_reset_requests', request.id, { status: 'Completed', completed_at: nowIso(), code_hash: null });
   });
   await revokeAllSessions(user.id);

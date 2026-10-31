@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import { Router } from 'express';
-import { PRIVATE_FOLDERS } from '@estateflow/shared';
+import { PRIVATE_FOLDERS, listQuery } from '@estateflow/shared';
 import { z } from 'zod';
 import { db } from '../db/index.js';
 import { authorize, type AuthUser } from '../middleware/auth.js';
-import { HttpError, likeParam, parse, parseQuery } from '../utils/http.js';
+import { HttpError, likeParam, pageMeta, paging, parse, parseQuery } from '../utils/http.js';
 import { nowIso } from '../utils/dates.js';
 import { upload, verifyUploadedFile } from '../services/documents.js';
 
@@ -21,14 +21,16 @@ const owner = (folder: string, user: AuthUser) => (folder === 'personal' ? user.
 const SELECT = 'SELECT d.id, d.entity_type, d.entity_id, d.name, d.doc_type, d.mime, d.size, d.uploaded_by, d.created_at, u.name AS uploaded_by_name FROM documents d LEFT JOIN users u ON u.id = d.uploaded_by';
 
 r.get('/', async (req, res) => {
-  const q = parseQuery(z.object({ folder: z.enum(folders), q: z.string().trim().max(120).optional(), doc_type: z.string().trim().max(60).optional() }), req);
+  const q = parseQuery(listQuery.extend({ folder: z.enum(folders), q: z.string().trim().max(120).optional(), doc_type: z.string().trim().max(60).optional() }), req);
+  const p = paging(q, 500);
   let where = 'WHERE d.entity_type = ? AND d.entity_id = ?';
   const params: unknown[] = [q.folder, owner(q.folder, req.user)];
   if (q.doc_type) { where += ' AND d.doc_type = ?'; params.push(q.doc_type); }
   if (q.q) { where += ' AND d.name LIKE ?'; params.push(likeParam(q.q)); }
-  const data = await db.all(`${SELECT} ${where} ORDER BY d.created_at DESC, d.id DESC LIMIT 500`, params);
+  const total = (await db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM documents d ${where}`, params))!.n;
+  const data = await db.all(`${SELECT} ${where} ORDER BY d.created_at DESC, d.id DESC LIMIT ? OFFSET ?`, [...params, p.limit, p.offset]);
   const counts = await db.all("SELECT entity_type AS folder, COUNT(*) AS n FROM documents WHERE (entity_type = 'office' AND entity_id = 0) OR (entity_type = 'personal' AND entity_id = ?) GROUP BY entity_type", [req.user.id]);
-  res.json({ data, meta: { counts: Object.fromEntries(counts.map((c) => [c.folder, c.n])) } });
+  res.json({ data, meta: pageMeta(total, p, { counts: Object.fromEntries(counts.map((c) => [c.folder, c.n])) }) });
 });
 
 r.post('/', upload.single('file'), async (req, res) => {

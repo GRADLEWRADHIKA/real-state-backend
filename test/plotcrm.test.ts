@@ -1,9 +1,11 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
+import path from 'node:path';
 import { addDays, todayStr } from '@estateflow/shared';
+import { config } from '../src/config.js';
 import { db } from '../src/db/index.js';
 import { runScheduledJobs } from '../src/services/scheduler.js';
-import { createBackup, listBackups } from '../src/services/backup.js';
+import { backupDir, createBackup, listBackups, uploadsMirrorDir } from '../src/services/backup.js';
 import { as, setupDb, type Session } from './helpers.js';
 
 let admin: Session, manager: Session, sales: Session, accounts: Session;
@@ -83,6 +85,18 @@ describe('customers: registry, nominee and broker commission', () => {
     expect(res.body.data[0]).not.toHaveProperty('commission_due');
     await sales.get('/api/brokers/commissions').expect(403);
   });
+
+  it('withdraws unpaid commission when the booking is cancelled and keeps what was paid', async () => {
+    const inst = await db.get('SELECT id FROM installments WHERE customer_id = ? AND paid_amount < amount ORDER BY number LIMIT 1', [customerId]);
+    await accounts.post(`/api/installments/${inst.id}/payment`, { amount: 50_000, method: 'Cash', payment_date: T }).expect(201);
+    const due = await db.get("SELECT COUNT(*) AS n FROM broker_commissions WHERE customer_id = ? AND status = 'Due'", [customerId]);
+    expect(due.n).toBeGreaterThan(0);
+    await admin.post(`/api/customers/${customerId}/cancel`, { reason: 'Buyer withdrew' }).expect(200);
+    const after = await db.all('SELECT status FROM broker_commissions WHERE customer_id = ?', [customerId]);
+    expect(after.map((r: { status: string }) => r.status)).toEqual(['Paid']);
+    await manager.put(`/api/customers/${customerId}`, { broker_id: brokerId });
+    expect((await db.get("SELECT COUNT(*) AS n FROM broker_commissions WHERE customer_id = ? AND status = 'Due'", [customerId])).n).toBe(0);
+  });
 });
 
 describe('expenses', () => {
@@ -145,6 +159,27 @@ describe('backups', () => {
     expect(Number(file.headers['content-length'] ?? file.body.length)).toBeGreaterThan(1000);
     await manager.get('/api/backups').expect(403);
     await admin.get('/api/backups/..%2F..%2F.env').expect(400);
+  });
+
+  it('keeps daily copies when many manual backups are taken, and mirrors uploads', async () => {
+    const dir = backupDir();
+    const prefix = path.basename(config.dbFile, path.extname(config.dbFile));
+    fs.mkdirSync(dir, { recursive: true });
+    const daily = `${prefix}-2001-01-01.db`;
+    fs.writeFileSync(path.join(dir, daily), 'x');
+    fs.utimesSync(path.join(dir, daily), new Date('2001-01-01'), new Date('2001-01-01'));
+    for (let i = 0; i < 12; i++) {
+      const name = `${prefix}-2001-01-02-0000${String(i).padStart(2, '0')}.db`;
+      fs.writeFileSync(path.join(dir, name), 'x');
+    }
+    fs.mkdirSync(config.uploadDir, { recursive: true });
+    fs.writeFileSync(path.join(config.uploadDir, 'backup-mirror-check.txt'), 'kept');
+    await createBackup(true);
+    const names = listBackups().map((b) => b.name);
+    expect(names).toContain(daily);
+    expect(names.filter((n) => /-\d{6}\.db$/.test(n)).length).toBeLessThanOrEqual(10);
+    expect(fs.readFileSync(path.join(uploadsMirrorDir(), 'backup-mirror-check.txt'), 'utf8')).toBe('kept');
+    fs.rmSync(path.join(dir, daily), { force: true });
   });
 });
 

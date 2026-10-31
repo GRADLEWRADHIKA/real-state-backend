@@ -211,6 +211,7 @@ export async function runScheduledJobs(now = new Date()) {
   await db.run('DELETE FROM refresh_tokens WHERE expires_at < ?', [new Date(now.getTime() - 7 * 86_400_000).toISOString()]);
   await db.run("UPDATE password_reset_requests SET status = 'Dismissed', code_hash = NULL WHERE status = 'Issued' AND code_expires_at < ?", [nowIso()]);
   await db.run('DELETE FROM reminder_log WHERE sent_on < ?', [addDays(t, -60)]);
+  await db.run('DELETE FROM login_failures WHERE updated_at < ? AND (locked_until IS NULL OR locked_until < ?)', [new Date(now.getTime() - 86_400_000).toISOString(), nowIso()]);
   return sent;
 }
 

@@ -253,3 +253,21 @@ describe('production process', () => {
     }
   });
 });
+
+describe('global search by phone', () => {
+  it('finds leads and customers whatever way the number is formatted', async () => {
+    const admin = await as('admin');
+    const customer = (await admin.get('/api/customers?limit=1').expect(200)).body.data[0];
+    const lead = (await admin.get('/api/leads?limit=1').expect(200)).body.data[0];
+    const plain = (p: string) => p.replace(/\D/g, '').slice(-10);
+    const spaced = (p: string) => `+91 ${plain(p).slice(0, 5)} ${plain(p).slice(5)}`;
+    for (const q of [plain(customer.phone), spaced(customer.phone)]) {
+      const res = await admin.get(`/api/search?q=${encodeURIComponent(q)}`).expect(200);
+      expect(res.body.customers.map((c: { id: number }) => c.id)).toContain(customer.id);
+    }
+    const leads = await admin.get(`/api/search?q=${encodeURIComponent(spaced(lead.phone))}`).expect(200);
+    expect(leads.body.leads.map((l: { id: number }) => l.id)).toContain(lead.id);
+    const list = await admin.get(`/api/customers?q=${encodeURIComponent(spaced(customer.phone))}`).expect(200);
+    expect(list.body.data.map((c: { id: number }) => c.id)).toContain(customer.id);
+  });
+});

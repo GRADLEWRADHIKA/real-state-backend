@@ -15,7 +15,7 @@ import {
 } from '@estateflow/shared';
 import { db } from '../db/index.js';
 import { adminAppReadOnly, authorize, dashboardOnly, isScoped, scope, type AuthUser } from '../middleware/auth.js';
-import { HttpError, attachmentHeader, forbidden, idParam, likeParam, notFound, orderBy, pageMeta, paging, parse, parseQuery } from '../utils/http.js';
+import { HttpError, attachmentHeader, forbidden, idParam, likeParam, notFound, orderBy, pageMeta, paging, parse, parseQuery, phoneDigitsSql, phoneLikeParam } from '../utils/http.js';
 import { addDays, nowIso, today } from '../utils/dates.js';
 import { syncCommissionsForCustomer } from '../services/commission.js';
 import { logActivity, notifyRoles, notifyUsers } from '../services/activity.js';
@@ -64,8 +64,8 @@ r.get('/', async (req, res) => {
   else if (q.registry) { where += ' AND c.registry_status = ?'; params.push(q.registry); }
   if (q.q) {
     const like = likeParam(q.q);
-    where += ' AND (c.name LIKE ? OR c.phone LIKE ? OR c.email LIKE ? OR c.code LIKE ? OR p.unit_number LIKE ?)';
-    params.push(like, like, like, like, like);
+    where += ` AND (c.name LIKE ? OR c.phone LIKE ? OR ${phoneDigitsSql('c.phone')} LIKE ? OR c.email LIKE ? OR c.code LIKE ? OR p.unit_number LIKE ?)`;
+    params.push(like, like, phoneLikeParam(q.q), like, like, like);
   }
   const sorts: Record<string, string> = { name: 'name', booking_date: 'booking_date', total_value: 'total_value', paid: 'paid', outstanding: '(total_value - paid)', overdue: 'overdue', next_due_date: 'next_due_date', code: 'id' };
   // paid/overdue are computed columns, so payment filters and sorting run on the derived table.
@@ -239,7 +239,14 @@ r.post('/:id/cancel', authorize('admin', 'manager'), dashboardOnly, async (req, 
     await db.run('DELETE FROM installments WHERE customer_id = ? AND paid_amount = 0', [c.id]);
     if (c.property_id) await db.update('properties', c.property_id, { status: 'Available', updated_at: now });
     if (c.lead_id) await db.update('leads', c.lead_id, { status: 'Lost', lost_reason: `Booking cancelled: ${reason}`, updated_at: now });
-    await logActivity({ customer_id: c.id, lead_id: c.lead_id, property_id: c.property_id, type: 'cancelled', title: 'Booking cancelled', description: `${reason}. Payments received so far: ${inr(c.paid)}.`, user_id: req.user.id });
+    // Unpaid broker commission on a cancelled booking is withdrawn; commission already paid out stays on record.
+    const commission = await db.get<{ due: number; paid: number }>(
+      "SELECT COALESCE(SUM(CASE WHEN status = 'Due' THEN amount END), 0) AS due, COALESCE(SUM(CASE WHEN status = 'Paid' THEN amount END), 0) AS paid FROM broker_commissions WHERE customer_id = ?",
+      [c.id],
+    );
+    await syncCommissionsForCustomer(c.id);
+    const commissionNote = [commission?.due ? `Unpaid broker commission of ${inr(commission.due)} withdrawn.` : '', commission?.paid ? `${inr(commission.paid)} broker commission was already paid.` : ''].filter(Boolean).join(' ');
+    await logActivity({ customer_id: c.id, lead_id: c.lead_id, property_id: c.property_id, type: 'cancelled', title: 'Booking cancelled', description: `${reason}. Payments received so far: ${inr(c.paid)}.${commissionNote ? ` ${commissionNote}` : ''}`, user_id: req.user.id });
   });
   await notifyRoles(['admin', 'manager', 'accounts'], { type: 'alert', title: 'Booking cancelled', message: `${c.name} · ${c.property_project ?? ''} ${c.property_unit ?? ''} — ${reason}`, link: `/customers/${c.id}` }, req.user.id);
   const portal = await portalUserFor(c.id);

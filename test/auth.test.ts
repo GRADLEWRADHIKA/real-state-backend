@@ -56,7 +56,24 @@ describe('login and client claim', () => {
     expect(a.status).toBe(401);
     expect(b.status).toBe(401);
     expect(a.body.error).toBe(b.body.error);
+    await db.run("DELETE FROM login_failures WHERE user_id = (SELECT id FROM users WHERE email = 'admin@demo.com')");
     await db.run("UPDATE users SET failed_logins = 0, locked_until = NULL WHERE email = 'admin@demo.com'");
+  });
+
+  it('locks an account only for the address the failed attempts came from', async () => {
+    const send = (ip: string, password: string) =>
+      request(app).post('/api/auth/login').set(H, 'dashboard').set('X-Forwarded-For', ip).send({ email: 'manager@demo.com', password, client: 'dashboard' });
+    for (let i = 0; i < 5; i++) expect((await send('203.0.113.9', 'wrong')).status).toBe(401);
+    const locked = await send('203.0.113.9', 'Manager@123');
+    expect(locked.status).toBe(423);
+    expect(locked.body.details.code).toBe('locked');
+    expect((await send('198.51.100.4', 'Manager@123')).status).toBe(200);
+    const admin = await login('admin');
+    const users = await request(app).get('/api/users').set('Authorization', `Bearer ${admin.accessToken}`).set(H, 'dashboard');
+    const manager = users.body.data.find((u: any) => u.email === 'manager@demo.com');
+    expect(manager.locked_until).toBeTruthy();
+    await request(app).post(`/api/users/${manager.id}/unlock`).set('Authorization', `Bearer ${admin.accessToken}`).set(H, 'dashboard').expect(200);
+    expect((await send('203.0.113.9', 'Manager@123')).status).toBe(200);
   });
 
   it('every response carries a request id', async () => {

@@ -6,18 +6,19 @@ import { notifyRoles } from './notifications.js';
 /**
  * Broker commission follows the customer's payments: every completed payment from a customer who came
  * through a broker gets one commission row at the broker's rate. A payment that later fails or goes back
- * to pending loses its unpaid commission; commission already paid out is never changed.
+ * to pending, or whose booking is cancelled, loses its unpaid commission; commission already paid out is
+ * never changed.
  */
 export async function syncCommissionForTransaction(transactionId: number) {
   const t = await db.get(
-    `SELECT t.id, t.amount, t.status, t.customer_id, c.name AS customer_name, c.broker_id, b.name AS broker_name, b.commission_pct
+    `SELECT t.id, t.amount, t.status, t.customer_id, c.name AS customer_name, c.status AS customer_status, c.broker_id, b.name AS broker_name, b.commission_pct
      FROM transactions t JOIN customers c ON c.id = t.customer_id LEFT JOIN brokers b ON b.id = c.broker_id WHERE t.id = ?`,
     [transactionId],
   );
   if (!t) return;
   const existing = await db.get('SELECT id, status, broker_id FROM broker_commissions WHERE transaction_id = ?', [t.id]);
   if (existing?.status === 'Paid') return;
-  const earns = t.status === 'Completed' && t.broker_id && t.commission_pct > 0;
+  const earns = t.status === 'Completed' && t.customer_status !== 'Cancelled' && t.broker_id && t.commission_pct > 0;
   if (!earns) {
     if (existing) await db.run('DELETE FROM broker_commissions WHERE id = ?', [existing.id]);
     return;

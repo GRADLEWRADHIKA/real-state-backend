@@ -38,7 +38,9 @@ r.get('/', async (req, res) => {
   if (q.to) { where += ' AND f.due_date <= ?'; params.push(q.to); }
   if (q.q) { const like = likeParam(q.q); where += ' AND (l.name LIKE ? OR f.notes LIKE ? OR l.phone LIKE ?)'; params.push(like, like, like); }
   const total = (await db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM followups f JOIN leads l ON l.id = f.lead_id ${where}`, params))!.n;
-  const data = await db.all(`${SELECT} ${where} ORDER BY CASE f.status WHEN 'Pending' THEN 0 ELSE 1 END, f.due_date, f.due_time LIMIT ? OFFSET ?`, [...params, p.limit, p.offset]);
+  // Completed follow-ups read newest first; everything else in the order it falls due.
+  const order = q.status === 'Completed' ? 'f.due_date DESC, f.due_time DESC' : "CASE f.status WHEN 'Pending' THEN 0 ELSE 1 END, f.due_date, f.due_time";
+  const data = await db.all(`${SELECT} ${where} ORDER BY ${order}, f.id LIMIT ? OFFSET ?`, [...params, p.limit, p.offset]);
 
   const sc = scope(req.user, 'agent_id');
   const summary = await db.get(

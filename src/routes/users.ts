@@ -7,7 +7,7 @@ import { HttpError, forbidden, idParam, likeParam, notFound, pageMeta, paging, p
 import { nowIso } from '../utils/dates.js';
 import { audit } from '../services/activity.js';
 import { revokeAllSessions, sha256 } from '../services/tokens.js';
-import { hashNewPassword, publicUser } from '../services/users.js';
+import { clearLoginFailures, hashNewPassword, publicUser } from '../services/users.js';
 
 const r = Router();
 
@@ -174,7 +174,8 @@ r.post('/:id/force-logout', async (req, res) => {
 
 r.post('/:id/unlock', async (req, res) => {
   const id = idParam(req);
-  if (!(await db.update('users', id, { failed_logins: 0, locked_until: null }))) throw notFound('User');
+  if (!(await db.get('SELECT id FROM users WHERE id = ?', [id]))) throw notFound('User');
+  await clearLoginFailures(id);
   res.json({ ok: true, id });
 });
 

@@ -85,6 +85,14 @@ export function orderBy(sorts: Record<string, string>, sort: string | undefined,
 }
 
 export const likeParam = (q: string) => `%${q.trim()}%`;
+
+/** A phone column with spaces, dashes, brackets, dots and + removed, so digits can be matched with LIKE. */
+export const phoneDigitsSql = (column: string) => `REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(${column}, ' ', ''), '-', ''), '+', ''), '(', ''), ')', ''), '.', '')`;
+/** LIKE pattern for the digits in a search (last 10 digits, so "+91 98390 12345" finds "98390-12345"); falls back to the text. */
+export const phoneLikeParam = (q: string) => {
+  const digits = q.replace(/\D/g, '');
+  return likeParam(digits.length >= 3 ? digits.slice(-10) : q);
+};
 export const placeholders = (n: number) => Array.from({ length: n }, () => '?').join(',');
 
 /** Sends a file download with a safe Content-Disposition. */
