@@ -1,0 +1,48 @@
+# One-off, read-only look at how the server runs the API (for the switch from demo to production mode).
+# Changes nothing. The repository is public, so it prints setting NAMES only, plus the values of a few
+# harmless settings (mode, paths, port); secrets are never printed.
+name: Server inspect (read-only)
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/server-inspect.yml']
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    environment: production
+    steps:
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
+          echo "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+      - name: Inspect the server
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          ssh -i ~/.ssh/deploy ubuntu@$HOST 'bash -s' <<'REMOTE'
+          SAFE='^(APP_MODE|NODE_ENV|PORT|HOST|TZ|DATABASE_FILE|DEMO_DATABASE_FILE|UPLOAD_DIR|DASHBOARD_DIST|MIN_APP_VERSION|CORS_ORIGINS|LOG_LEVEL|COMPANY_NAME|ADMIN_NAME)$'
+          # Prints KEY=value for safe keys, KEY=(set) for everything else.
+          show_env() { sed -n 's/^[[:space:]]*\(export[[:space:]]\+\)\?\([A-Za-z_][A-Za-z0-9_]*\)=\(.*\)$/\2 \3/p' "$1" | while read -r k v; do
+            if echo "$k" | grep -Eq "$SAFE"; then echo "  $k=$v"; else echo "  $k=(set)"; fi; done; }
+          # Script/unit lines, with anything that looks like KEY=value reduced to the same rule.
+          show_text() { sed -E 's/(PASSWORD|SECRET|TOKEN|KEY)([A-Z_]*)=[^ "]*/\1\2=(hidden)/Ig' "$1"; }
+
+          echo "===== /srv/estate"; ls -la /srv/estate /srv/estate/bin /srv/estate/data 2>&1
+          for f in /srv/estate/bin/*; do echo "===== $f"; show_text "$f"; done
+          echo "===== services"; systemctl list-units --type=service --all --no-pager 2>/dev/null | grep -Ei 'estate|node|pm2|caddy|nginx' || true
+          for f in /etc/systemd/system/*estate* /etc/systemd/system/*.service.d/*; do [ -f "$f" ] || continue
+            echo "===== $f"; grep -v '^Environment=' "$f" | show_text /dev/stdin
+            grep '^Environment=' "$f" | sed 's/^Environment=//; s/"//g' | tr ' ' '\n' > /tmp/unit-env.$$ && show_env /tmp/unit-env.$$; rm -f /tmp/unit-env.$$; done
+          echo "===== env files"
+          sudo -n find /srv/estate /etc -maxdepth 4 \( -name '.env' -o -name '*.env' \) 2>/dev/null | while read -r f; do echo "--- $f"; sudo -n cat "$f" > /tmp/e.$$ && show_env /tmp/e.$$; rm -f /tmp/e.$$; done
+          echo "===== processes"; ps -eo user,pid,args | grep -Ei 'node|tsx|pm2|docker' | grep -v grep | sed -E 's/(PASSWORD|SECRET|TOKEN|KEY)[A-Z_]*=[^ ]*/\1=(hidden)/Ig'
+          echo "===== pm2"; command -v pm2 >/dev/null && pm2 jlist 2>/dev/null | grep -o '"name":"[^"]*"\|"pm_cwd":"[^"]*"\|"script":"[^"]*"\|"args":\[[^]]*\]' || echo "no pm2"
+          echo "===== docker"; command -v docker >/dev/null && sudo -n docker ps --format '{{.Names}} {{.Image}} {{.Status}}' 2>/dev/null || echo "no docker"
+          echo "===== sudo"; sudo -n true 2>/dev/null && echo "passwordless sudo: yes" || echo "passwordless sudo: no"
+          echo "===== databases"; ls -la /srv/estate/data/*.db 2>/dev/null
+          echo "===== meta"; curl -s localhost:7341/api/meta; echo
+          REMOTE
