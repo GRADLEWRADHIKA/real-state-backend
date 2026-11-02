@@ -6,6 +6,7 @@ import { log } from '../logger.js';
 import { addDays, nowIso, today } from '../utils/dates.js';
 import { notifyRoles, notifyUsers, portalUserFor, type NotificationInput } from './notifications.js';
 import { syncInstallmentStatuses } from './payments.js';
+import { applyDueRates } from './pricing.js';
 import { getSetting } from './settings.js';
 
 /**
@@ -170,6 +171,9 @@ export async function runScheduledJobs(now = new Date()) {
     if (u.hold_by) await notifyUsers([u.hold_by], { type: 'property', title: 'Hold expired', message: `${u.project} ${u.unit_number} is available again; the hold ended without a booking.`, link: `/properties/${u.id}` });
     sent.holds++;
   }
+
+  // Future-dated rates from the price list whose date has come.
+  await applyDueRates();
 
   // Lead ageing: once a day, tell managers how many open leads nobody has contacted for a week.
   if (now.getHours() >= 9 && (await claim('stuck_leads', 0, 0, t))) {

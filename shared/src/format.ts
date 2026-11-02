@@ -75,9 +75,13 @@ export const fmtDateLong = (v?: string | null) => fmtDate(v, { day: 'numeric', m
 /** 3:00 PM from "15:00" */
 export function fmtTime(t?: string | null) {
   if (!t) return '';
-  const [h, m] = t.split(':').map(Number);
-  const d = new Date();
-  d.setHours(h, m, 0, 0);
+  // "HH:MM" (a scheduled time) or a full timestamp such as an attendance check-in.
+  const d = t.includes('T') ? new Date(t) : new Date();
+  if (!t.includes('T')) {
+    const [h, m] = t.split(':').map(Number);
+    d.setHours(h, m, 0, 0);
+  }
+  if (isNaN(d.getTime())) return '';
   return d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true }).toUpperCase();
 }
 export function fmtDateTime(v?: string | null) {

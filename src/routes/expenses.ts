@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { expenseBody, expenseListQuery, toCsv } from '@estateflow/shared';
 import { db } from '../db/index.js';
 import { adminAppReadOnly, authorize } from '../middleware/auth.js';
-import { HttpError, attachmentHeader, idParam, likeParam, notFound, pageMeta, paging, parse, parseQuery } from '../utils/http.js';
+import { HttpError, attachmentHeader, idParam, likeParam, notFound, pageMeta, paging, parse, parseQuery, parseEdit } from '../utils/http.js';
 import { nowIso, today } from '../utils/dates.js';
 
 /** Site and office spending ("kharcha"), kept by accounts. */
@@ -69,7 +69,7 @@ r.post('/', async (req, res) => {
 r.put('/:id', async (req, res) => {
   const id = idParam(req);
   if (!(await db.get('SELECT id FROM expenses WHERE id = ?', [id]))) throw notFound('Expense');
-  const data = parse(expenseBody.partial(), req.body);
+  const data = parseEdit(expenseBody.partial(), req.body);
   if (data.expense_date && data.expense_date > today()) throw new HttpError(422, 'expense_date: cannot be in the future');
   await db.update('expenses', id, data);
   res.json(await db.get(`${SELECT} WHERE e.id = ?`, [id]));

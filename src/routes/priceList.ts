@@ -7,6 +7,7 @@ import { HttpError, parse, parseQuery } from '../utils/http.js';
 import { nowIso, today } from '../utils/dates.js';
 import { logActivity } from '../services/activity.js';
 import { realtime } from '../services/realtime.js';
+import { isCurrentRate, repriceUnsold } from '../services/pricing.js';
 
 /**
  * Rates per project and block, with every change kept. A new rate can re-price the unsold units of
@@ -45,28 +46,28 @@ r.get('/', async (req, res) => {
 
 r.post('/', authorize('admin', 'manager'), async (req, res) => {
   const data = parse(priceListBody, req.body);
-  const units = await db.all<{ id: number; area_sqft: number }>(
-    "SELECT id, area_sqft FROM properties WHERE project = ? AND COALESCE(block, '') = ? AND status IN ('Available','Reserved')",
-    [data.project, data.block],
-  );
   const known = await db.get("SELECT id FROM properties WHERE project = ? AND COALESCE(block, '') = ? LIMIT 1", [data.project, data.block]);
   if (!known) throw new HttpError(422, `block: No units in ${data.project}${data.block ? ` block ${data.block}` : ''}`);
-  const applyNow = data.apply_to_unsold && data.effective_from <= today();
+  // Units are re-priced only by the rate in effect: not by a back-dated entry that a later rate has
+  // already replaced, and a future-dated rate waits for its date (the scheduler applies it then).
+  const inEffect = data.effective_from <= today();
+  const applyNow = data.apply_to_unsold && inEffect && (await isCurrentRate(data.project, data.block, data.effective_from));
+  const pending = data.apply_to_unsold && !inEffect;
   const id = await db.transaction(async () => {
-    if (applyNow) {
-      for (const u of units) await db.update('properties', u.id, { rate_per_sqft: data.rate_per_sqft, price: data.rate_per_sqft * u.area_sqft, updated_at: nowIso() });
-    }
+    const updated = applyNow ? await repriceUnsold(data.project, data.block, data.rate_per_sqft) : 0;
     const rowId = await db.insert('price_list', {
       project: data.project,
       block: data.block,
       rate_per_sqft: data.rate_per_sqft,
       effective_from: data.effective_from,
       note: data.note ?? null,
-      units_updated: applyNow ? units.length : 0,
+      units_updated: updated,
+      apply_pending: pending ? 1 : 0,
       created_by: req.user.id,
       created_at: nowIso(),
     });
-    await logActivity({ type: 'price', title: `Rate set for ${data.project}${data.block ? ` block ${data.block}` : ''}`, description: `₹${data.rate_per_sqft.toLocaleString('en-IN')} per sq ft from ${data.effective_from}${applyNow ? `, ${units.length} unsold units re-priced` : ''}`, user_id: req.user.id });
+    const when = applyNow ? `, ${updated} unsold units re-priced` : pending ? ', unsold units will be re-priced on that date' : '';
+    await logActivity({ type: 'price', title: `Rate set for ${data.project}${data.block ? ` block ${data.block}` : ''}`, description: `₹${data.rate_per_sqft.toLocaleString('en-IN')} per sq ft from ${data.effective_from}${when}`, user_id: req.user.id });
     return rowId;
   });
   if (applyNow) realtime.change(['properties'], { staffOnly: true });

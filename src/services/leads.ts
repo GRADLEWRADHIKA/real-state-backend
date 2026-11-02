@@ -52,6 +52,12 @@ export async function touchLeadContact(leadId: number) {
   await db.run('UPDATE leads SET last_contact = ?, updated_at = ? WHERE id = ?', [nowIso(), nowIso(), leadId]);
 }
 
+/** A lead's open follow-ups and upcoming site visits go with the lead to its new executive. */
+export async function moveLeadWork(leadId: number, agentId: number) {
+  await db.run("UPDATE followups SET agent_id = ? WHERE lead_id = ? AND status = 'Pending'", [agentId, leadId]);
+  await db.run("UPDATE site_visits SET agent_id = ? WHERE lead_id = ? AND status IN ('Scheduled', 'Rescheduled')", [agentId, leadId]);
+}
+
 export async function changeLeadStatus(leadId: number, status: string, user: AuthUser, reason?: string | null) {
   const lead = await db.get('SELECT id, name, status, assigned_to FROM leads WHERE id = ?', [leadId]);
   if (!lead) throw notFound('Lead');
@@ -104,6 +110,11 @@ export async function convertLead(leadId: number | null, input: ConversionInput,
     if (!property) throw notFound('Property');
     if (!['Available', 'Reserved'].includes(property.status)) {
       throw new HttpError(409, `${property.project} ${property.unit_number} is already ${property.status.toLowerCase()}`);
+    }
+    // A unit on hold for another lead can only be booked by an administrator or manager (who can overrule the hold).
+    if (property.status === 'Reserved' && property.hold_lead_id && property.hold_lead_id !== lead.id && !['admin', 'manager'].includes(user.role)) {
+      const holder = property.hold_by ? await db.get<{ name: string }>('SELECT name FROM users WHERE id = ?', [property.hold_by]) : undefined;
+      throw new HttpError(409, `${property.project} ${property.unit_number} is on hold for another lead${holder ? ` by ${holder.name}` : ''}. Ask them or a manager to release it first.`);
     }
     if (input.booking_amount >= input.total_value) throw new HttpError(422, 'Booking amount must be less than the deal value');
 

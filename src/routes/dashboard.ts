@@ -128,6 +128,8 @@ r.get('/', async (req, res) => {
   const d60 = addDays(t, -60);
   const months = lastMonths(12);
   const m = (col: string) => db.dialect.month(col);
+  // created_at is a UTC timestamp: group and compare it by its local (IST) calendar day.
+  const day = (col: string) => db.dialect.localDate(col);
 
   // Scope fragments (sales executives see only their own book of business).
   const L = scoped ? ' AND l.assigned_to = ?' : '';
@@ -137,8 +139,8 @@ r.get('/', async (req, res) => {
 
   const leadStats = await db.get(
     `SELECT COUNT(*) AS total,
-       COALESCE(SUM(CASE WHEN substr(l.created_at, 1, 10) > ? THEN 1 ELSE 0 END), 0) AS last30,
-       COALESCE(SUM(CASE WHEN substr(l.created_at, 1, 10) > ? AND substr(l.created_at, 1, 10) <= ? THEN 1 ELSE 0 END), 0) AS prev30,
+       COALESCE(SUM(CASE WHEN ${day('l.created_at')} > ? THEN 1 ELSE 0 END), 0) AS last30,
+       COALESCE(SUM(CASE WHEN ${day('l.created_at')} > ? AND ${day('l.created_at')} <= ? THEN 1 ELSE 0 END), 0) AS prev30,
        COALESCE(SUM(CASE WHEN l.status IN (${ACTIVE_STAGES.map(() => '?').join(',')}) THEN 1 ELSE 0 END), 0) AS active,
        COALESCE(SUM(CASE WHEN l.status IN (${ACTIVE_STAGES.map(() => '?').join(',')}) THEN l.budget END), 0) AS active_value,
        COALESCE(SUM(CASE WHEN l.status = 'New' THEN 1 ELSE 0 END), 0) AS status_new
@@ -146,8 +148,8 @@ r.get('/', async (req, res) => {
     [d30, d60, d30, ...ACTIVE_STAGES, ...ACTIVE_STAGES, ...sp],
   );
   const stageMoves = await db.get(
-    `SELECT SUM(CASE WHEN substr(a.created_at, 1, 10) > ? THEN 1 ELSE 0 END) AS last30,
-            SUM(CASE WHEN substr(a.created_at, 1, 10) > ? AND substr(a.created_at, 1, 10) <= ? THEN 1 ELSE 0 END) AS prev30
+    `SELECT SUM(CASE WHEN ${day('a.created_at')} > ? THEN 1 ELSE 0 END) AS last30,
+            SUM(CASE WHEN ${day('a.created_at')} > ? AND ${day('a.created_at')} <= ? THEN 1 ELSE 0 END) AS prev30
      FROM activities a JOIN leads l ON l.id = a.lead_id
      WHERE a.type = 'status' AND a.title IN (${ACTIVE_STAGES.map((s) => `'Moved to ${s}'`).join(',')})${L}`,
     [d30, d60, d30, ...sp],
@@ -177,7 +179,7 @@ r.get('/', async (req, res) => {
   );
 
   // Monthly series
-  const leadMonthly = await db.all(`SELECT ${m('l.created_at')} AS k, COUNT(*) AS n FROM leads l WHERE l.created_at >= ?${L} GROUP BY k`, [`${months[0]}-01`, ...sp]);
+  const leadMonthly = await db.all(`SELECT substr(${day('l.created_at')}, 1, 7) AS k, COUNT(*) AS n FROM leads l WHERE ${day('l.created_at')} >= ?${L} GROUP BY k`, [`${months[0]}-01`, ...sp]);
   const dealMonthly = await db.all(`SELECT ${m('d.booking_date')} AS k, COUNT(*) AS n, SUM(d.value) AS v FROM deals d WHERE d.booking_date >= ?${D} GROUP BY k`, [`${months[0]}-01`, ...sp]);
   const revMonthly = await db.all(
     `SELECT ${m('t.payment_date')} AS k, SUM(t.amount) AS v FROM transactions t JOIN customers c ON c.id = t.customer_id

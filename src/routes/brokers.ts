@@ -3,7 +3,7 @@ import { brokerBody, commissionPayBody, inr, listQuery } from '@estateflow/share
 import { z } from 'zod';
 import { db } from '../db/index.js';
 import { adminAppReadOnly, authorize } from '../middleware/auth.js';
-import { HttpError, idParam, likeParam, notFound, pageMeta, paging, parse, parseQuery } from '../utils/http.js';
+import { HttpError, idParam, likeParam, notFound, pageMeta, paging, parse, parseQuery, parseEdit } from '../utils/http.js';
 import { nowIso, today } from '../utils/dates.js';
 import { logActivity } from '../services/activity.js';
 
@@ -85,7 +85,7 @@ r.post('/', authorize('admin', 'manager'), async (req, res) => {
 r.put('/:id', authorize('admin', 'manager'), async (req, res) => {
   const id = idParam(req);
   if (!(await db.get('SELECT id FROM brokers WHERE id = ?', [id]))) throw notFound('Broker');
-  const data = parse(brokerBody.partial(), req.body);
+  const data = parseEdit(brokerBody.partial(), req.body);
   // A new rate applies to payments from now on; commission already worked out keeps its rate.
   await db.update('brokers', id, data);
   res.json(await db.get(`${SELECT} WHERE b.id = ?`, [id]));

@@ -38,7 +38,8 @@ async function buildReport(user: AuthUser, range: { from?: string; to?: string }
   const fin = role === 'admin' || role === 'accounts';
   const months = monthsBetween(from, to);
   const m = db.dialect.month;
-  const inRange = (col: string) => `substr(${col}, 1, 10) BETWEEN ? AND ?`;
+  // Only used on UTC timestamp columns (created_at, completed_at), so compare their local calendar day.
+  const inRange = (col: string) => `${db.dialect.localDate(col)} BETWEEN ? AND ?`;
   const out: Record<string, unknown> = { from, to, sections: [] as string[] };
   const sections = out.sections as string[];
 

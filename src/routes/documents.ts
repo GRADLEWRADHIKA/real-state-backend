@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { Router } from 'express';
 import { documentListQuery, documentUploadFields } from '@estateflow/shared';
 import { db } from '../db/index.js';
@@ -87,8 +88,12 @@ r.get('/:id/download', async (req, res) => {
   const file = filePath(doc.file_name);
   if (!fs.existsSync(file)) throw new HttpError(410, 'The file for this document is no longer available');
   const inline = req.query.inline === '1' && /^(application\/pdf|image\/)/.test(doc.mime ?? '');
+  // A document's name is a title (scans are named "Sale deed (scan 2 Nov 2026)"); the saved file needs
+  // the stored file's extension so phones and PDF viewers know what it is.
+  const ext = path.extname(doc.file_name ?? '');
+  const fileName = ext && path.extname(doc.name).toLowerCase() !== ext.toLowerCase() ? `${doc.name}${ext}` : doc.name;
   res.setHeader('Content-Type', doc.mime || 'application/octet-stream');
-  res.setHeader('Content-Disposition', inline ? `inline; filename*=UTF-8''${encodeURIComponent(doc.name)}` : attachmentHeader(doc.name));
+  res.setHeader('Content-Disposition', inline ? `inline; filename*=UTF-8''${encodeURIComponent(fileName)}` : attachmentHeader(fileName));
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Cache-Control', 'private, no-store');
   fs.createReadStream(file).pipe(res);

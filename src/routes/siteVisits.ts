@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { checkInBody, checkOutBody, humanDate, visitBody, visitListQuery } from '@estateflow/shared';
 import { db } from '../db/index.js';
 import { adminAppReadOnly, authorize, isScoped, scope, type AuthUser } from '../middleware/auth.js';
-import { HttpError, forbidden, idParam, likeParam, notFound, pageMeta, paging, parse, parseQuery } from '../utils/http.js';
+import { HttpError, forbidden, idParam, likeParam, notFound, pageMeta, paging, parse, parseQuery, parseEdit } from '../utils/http.js';
 import { addDays, nowIso, today } from '../utils/dates.js';
 import { logActivity, notifyUsers } from '../services/activity.js';
 import { advanceLead, touchLeadContact } from '../services/leads.js';
@@ -99,7 +99,7 @@ r.post('/', async (req, res) => {
 
 r.put('/:id', async (req, res) => {
   const visit = await getVisitFor(idParam(req), req.user);
-  const data = parse(visitBody.partial(), req.body);
+  const data = parseEdit(visitBody.partial(), req.body);
   if (req.user.role === 'sales') delete data.agent_id;
   delete data.lead_id;
   const rescheduled = (data.visit_date && data.visit_date !== visit.visit_date) || (data.visit_time && data.visit_time !== visit.visit_time);

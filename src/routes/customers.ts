@@ -189,6 +189,8 @@ r.put('/:id', async (req, res) => {
   const data = parse(customerUpdateBody, req.body);
   if (data.pan) data.pan = data.pan.toUpperCase();
   if (req.user.role === 'sales' || req.user.role === 'accounts') delete data.assigned_to;
+  // A broker earns commission on every payment, so only the office (not the selling executive) sets one.
+  if (req.user.role === 'sales') delete data.broker_id;
   if (data.assigned_to && !(await db.get("SELECT id FROM users WHERE id = ? AND status = 'Active' AND role IN ('sales','manager','admin')", [data.assigned_to]))) {
     throw new HttpError(422, 'assigned_to: Select an active sales team member');
   }

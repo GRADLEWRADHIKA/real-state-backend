@@ -20,6 +20,7 @@ export async function financeSummary() {
   const month = t.slice(0, 7);
   const prevMonth = lastMonths(2)[0];
   const m = db.dialect.month('payment_date');
+  // Cancelled bookings keep their paid instalments on record, but they are no longer sales or dues.
   const totals = await db.get(
     `SELECT
        (SELECT COALESCE(SUM(total_value), 0) FROM customers WHERE status != 'Cancelled') AS total_sales,
@@ -28,7 +29,7 @@ export async function financeSummary() {
        COALESCE(SUM(CASE WHEN paid_amount < amount AND due_date < ? THEN amount - paid_amount END), 0) AS overdue,
        COALESCE(SUM(CASE WHEN paid_amount < amount AND due_date BETWEEN ? AND ? THEN amount - paid_amount END), 0) AS upcoming_30,
        COALESCE(SUM(CASE WHEN paid_amount < amount AND due_date < ? THEN 1 ELSE 0 END), 0) AS overdue_count
-     FROM installments`,
+     FROM installments WHERE customer_id IN (SELECT id FROM customers WHERE status != 'Cancelled')`,
     [t, t, t, addDays(t, 30), t],
   );
   const monthRows = await db.all(
@@ -51,8 +52,8 @@ export async function financeSummary() {
            p.project AS property_project, p.unit_number AS property_unit
     FROM installments i JOIN customers c ON c.id = i.customer_id LEFT JOIN properties p ON p.id = c.property_id`;
   const [upcoming, overdueList, recent] = await Promise.all([
-    db.all(`${instSelect} WHERE i.paid_amount < i.amount AND i.due_date BETWEEN ? AND ? ORDER BY i.due_date LIMIT 8`, [t, addDays(t, 45)]),
-    db.all(`${instSelect} WHERE i.paid_amount < i.amount AND i.due_date < ? ORDER BY i.due_date LIMIT 8`, [t]),
+    db.all(`${instSelect} WHERE c.status != 'Cancelled' AND i.paid_amount < i.amount AND i.due_date BETWEEN ? AND ? ORDER BY i.due_date LIMIT 8`, [t, addDays(t, 45)]),
+    db.all(`${instSelect} WHERE c.status != 'Cancelled' AND i.paid_amount < i.amount AND i.due_date < ? ORDER BY i.due_date LIMIT 8`, [t]),
     db.all(
       `SELECT t.*, c.name AS customer_name, p.project AS property_project, p.unit_number AS property_unit
        FROM transactions t JOIN customers c ON c.id = t.customer_id LEFT JOIN properties p ON p.id = t.property_id

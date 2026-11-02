@@ -9,7 +9,7 @@ import { uniqueSlug } from '../images/slug.js';
 import { IMAGE_EXT, addImage, deleteImages, removePropertyImageFiles, reorderImages, setCover, sniffImage, toDto, withImages } from '../images/store.js';
 import { db } from '../db/index.js';
 import { adminAppReadOnly, authorize } from '../middleware/auth.js';
-import { HttpError, forbidden, idParam, likeParam, notFound, orderBy, pageMeta, paging, parse, parseQuery } from '../utils/http.js';
+import { HttpError, forbidden, idParam, likeParam, notFound, orderBy, pageMeta, paging, parse, parseQuery, parseEdit } from '../utils/http.js';
 import { nowIso } from '../utils/dates.js';
 import { insertWithCode } from '../services/leads.js';
 import { portalUserFor, notifyUsers } from '../services/notifications.js';
@@ -151,7 +151,7 @@ r.put('/:id', authorize('admin', 'manager'), async (req, res) => {
   const id = idParam(req);
   const existing = await db.get('SELECT * FROM properties WHERE id = ?', [id]);
   if (!existing) throw notFound('Property');
-  const { generate_images: _ignored, ...data } = parse(propertyBody.partial(), req.body);
+  const { generate_images: _ignored, ...data } = parseEdit(propertyBody.partial(), req.body);
   if (data.slug && data.slug !== existing.slug && (await db.get('SELECT id FROM properties WHERE slug = ? AND id != ?', [data.slug, id]))) {
     throw new HttpError(409, `The web address ${data.slug} is already used by another property`);
   }

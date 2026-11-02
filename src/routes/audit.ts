@@ -15,8 +15,8 @@ function filters(q: ReturnType<typeof auditListQuery.parse>) {
   if (q.user) { where += ' AND a.user_id = ?'; params.push(q.user); }
   if (q.entity_type) { where += ' AND a.entity_type = ?'; params.push(q.entity_type); }
   if (q.action) { where += ' AND a.action LIKE ?'; params.push(likeParam(q.action)); }
-  if (q.from) { where += ' AND a.created_at >= ?'; params.push(q.from); }
-  if (q.to) { where += ' AND a.created_at < ?'; params.push(`${q.to}T99`); }
+  if (q.from) { where += ` AND ${db.dialect.localDate('a.created_at')} >= ?`; params.push(q.from); }
+  if (q.to) { where += ` AND ${db.dialect.localDate('a.created_at')} <= ?`; params.push(q.to); }
   if (q.q) { where += ' AND (a.title LIKE ? OR a.description LIKE ? OR u.name LIKE ? OR a.ip LIKE ?)'; const l = likeParam(q.q); params.push(l, l, l, l); }
   return { where, params };
 }

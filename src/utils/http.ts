@@ -84,6 +84,18 @@ export function orderBy(sorts: Record<string, string>, sort: string | undefined,
   return `${col} ${(order ?? defaultOrder) === 'asc' ? 'ASC' : 'DESC'}`;
 }
 
+/**
+ * Parses an edit (PUT) body and keeps only the fields the request actually sent. Zod still fills in
+ * `.default()` values for fields a `.partial()` schema made optional, which would silently reset
+ * them (a task's priority, a unit's status) on every small edit.
+ */
+export function parseEdit<T extends object>(schema: ZodType<T>, body: unknown): Partial<T> {
+  const data = parse(schema, body) as Record<string, unknown>;
+  const sent = body && typeof body === 'object' ? new Set(Object.keys(body)) : new Set<string>();
+  for (const k of Object.keys(data)) if (!sent.has(k)) delete data[k];
+  return data as Partial<T>;
+}
+
 export const likeParam = (q: string) => `%${q.trim()}%`;
 
 /** A phone column with spaces, dashes, brackets, dots and + removed, so digits can be matched with LIKE. */

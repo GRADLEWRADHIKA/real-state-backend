@@ -30,7 +30,7 @@ export const installmentStatus = (amount: number, paid: number, due: string) => 
 export async function customerFinancials(customerId: number) {
   const t = today();
   const row = await db.get(
-    `SELECT c.total_value,
+    `SELECT c.total_value, c.status,
        COALESCE(SUM(i.paid_amount), 0) AS paid,
        COALESCE(SUM(CASE WHEN i.paid_amount < i.amount AND i.due_date < ? THEN i.amount - i.paid_amount END), 0) AS overdue,
        COUNT(i.id) AS installments,
@@ -46,17 +46,19 @@ export async function customerFinancials(customerId: number) {
     [customerId],
   );
   const deal = await db.get('SELECT booking_amount FROM deals WHERE customer_id = ? ORDER BY id DESC LIMIT 1', [customerId]);
-  const outstanding = row.total_value - row.paid;
+  // A cancelled booking owes nothing more: its dues end with the cancellation (refunds settle the rest).
+  const cancelled = row.status === 'Cancelled';
+  const outstanding = cancelled ? 0 : row.total_value - row.paid;
   return {
     total_value: row.total_value,
     booking_amount: deal?.booking_amount ?? 0,
     paid: row.paid,
     outstanding,
-    overdue: row.overdue,
+    overdue: cancelled ? 0 : row.overdue,
     progress: row.total_value ? Math.round((row.paid / row.total_value) * 1000) / 10 : 0,
     installments: row.installments,
     paid_installments: row.paid_installments ?? 0,
-    next_installment: next ? { ...next, balance: next.balance } : null,
+    next_installment: next && !cancelled ? { ...next, balance: next.balance } : null,
   };
 }
 
@@ -112,11 +114,12 @@ export interface PaymentInput {
 export async function recordPayment(input: PaymentInput, user: AuthUser) {
   return db.transaction(async () => {
     const inst = await db.get(
-      `SELECT i.*, c.name AS customer_name, c.property_id, c.lead_id, c.assigned_to
+      `SELECT i.*, c.name AS customer_name, c.status AS customer_status, c.property_id, c.lead_id, c.assigned_to
        FROM installments i JOIN customers c ON c.id = i.customer_id WHERE i.id = ?`,
       [input.installment_id],
     );
     if (!inst) throw notFound('Installment');
+    if (inst.customer_status === 'Cancelled') throw new HttpError(409, 'This booking is cancelled, so no further payments can be recorded on it');
     const pendingClearance = (await db.get<{ n: number }>(
       "SELECT COALESCE(SUM(amount), 0) AS n FROM transactions WHERE installment_id = ? AND status = 'Pending'",
       [inst.id],

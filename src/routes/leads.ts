@@ -18,10 +18,10 @@ import {
 import { z } from 'zod';
 import { db } from '../db/index.js';
 import { adminAppReadOnly, authorize, dashboardOnly, isScoped, scope, type AuthUser } from '../middleware/auth.js';
-import { HttpError, attachmentHeader, forbidden, idParam, likeParam, notFound, orderBy, pageMeta, paging, parse, parseQuery, placeholders } from '../utils/http.js';
+import { HttpError, attachmentHeader, forbidden, idParam, likeParam, notFound, orderBy, pageMeta, paging, parse, parseQuery, placeholders, parseEdit } from '../utils/http.js';
 import { nowIso, today } from '../utils/dates.js';
 import { logActivity, notifyUsers } from '../services/activity.js';
-import { changeLeadStatus, convertLead, findDuplicates, insertWithCode } from '../services/leads.js';
+import { changeLeadStatus, convertLead, findDuplicates, insertWithCode, moveLeadWork } from '../services/leads.js';
 import { nextAssignee } from '../services/assignment.js';
 import { getSetting } from '../services/settings.js';
 import { STUCK_LEAD_DAYS, leadHeat } from '@estateflow/shared';
@@ -81,8 +81,8 @@ function leadFilters(q: z.infer<typeof leadListQuery>, user: AuthUser) {
   if (q.project) { where += ' AND p.project = ?'; params.push(q.project); }
   if (q.budget_min !== undefined) { where += ' AND l.budget >= ?'; params.push(q.budget_min); }
   if (q.budget_max !== undefined) { where += ' AND l.budget <= ?'; params.push(q.budget_max); }
-  if (q.from) { where += ' AND substr(l.created_at, 1, 10) >= ?'; params.push(q.from); }
-  if (q.to) { where += ' AND substr(l.created_at, 1, 10) <= ?'; params.push(q.to); }
+  if (q.from) { where += ` AND ${db.dialect.localDate('l.created_at')} >= ?`; params.push(q.from); }
+  if (q.to) { where += ` AND ${db.dialect.localDate('l.created_at')} <= ?`; params.push(q.to); }
   if (q.followup === 'overdue') { where += " AND l.next_followup < ? AND l.status NOT IN ('Closed','Lost','Booked')"; params.push(today()); }
   if (q.followup === 'today') { where += ' AND substr(l.next_followup, 1, 10) = ?'; params.push(today()); }
   if (q.followup === 'none') where += " AND l.next_followup IS NULL AND l.status NOT IN ('Closed','Lost','Booked')";
@@ -236,6 +236,7 @@ r.post('/bulk-assign', authorize('admin', 'manager'), async (req, res) => {
       const lead = await db.get<{ assigned_to: number | null }>('SELECT assigned_to FROM leads WHERE id = ?', [id]);
       if (!lead || lead.assigned_to === agent_id) continue;
       await db.update('leads', id, { assigned_to: agent_id, updated_at: nowIso() });
+      await moveLeadWork(id, agent_id);
       await logActivity({ lead_id: id, type: 'assigned', title: `Assigned to ${agent.name}`, user_id: req.user.id });
       updated++;
     }
@@ -347,7 +348,7 @@ r.get('/:id', async (req, res) => {
 
 r.put('/:id', async (req, res) => {
   const lead = await getLeadFor(idParam(req), req.user);
-  const body = parse(leadBody.partial({ source: true, name: true, phone: true, priority: true }), req.body);
+  const body = parseEdit(leadBody.partial({ source: true, name: true, phone: true, priority: true }), req.body);
   const { notes, status, ...data } = body;
   if (req.user.role === 'sales') delete data.assigned_to;
   if (data.phone) {
@@ -357,6 +358,7 @@ r.put('/:id', async (req, res) => {
   if (data.assigned_to) await assertAssignable(data.assigned_to);
   await db.update('leads', lead.id, { ...data, updated_at: nowIso() });
   if (data.assigned_to && data.assigned_to !== lead.assigned_to) {
+    await moveLeadWork(lead.id, data.assigned_to);
     const agent = await db.get('SELECT name FROM users WHERE id = ?', [data.assigned_to]);
     await logActivity({ lead_id: lead.id, type: 'assigned', title: `Assigned to ${agent?.name ?? 'team member'}`, user_id: req.user.id });
     await notifyUsers([data.assigned_to], { type: 'lead', title: 'Lead assigned to you', message: `${lead.name} has been assigned to you by ${req.user.name}.`, link: `/leads/${lead.id}`, trigger: 'lead_assigned' }, req.user.id);

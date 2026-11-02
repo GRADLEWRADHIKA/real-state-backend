@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { followupBody, followupListQuery, followupUpdateBody, humanDate } from '@estateflow/shared';
 import { db } from '../db/index.js';
 import { adminAppReadOnly, authorize, isScoped, scope } from '../middleware/auth.js';
-import { forbidden, idParam, likeParam, notFound, pageMeta, paging, parse, parseQuery } from '../utils/http.js';
+import { forbidden, idParam, likeParam, notFound, pageMeta, paging, parse, parseQuery, parseEdit } from '../utils/http.js';
 import { addDays, nowIso, today } from '../utils/dates.js';
 import { logActivity, notifyUsers } from '../services/activity.js';
 import { advanceLead, refreshLeadFollowup, touchLeadContact } from '../services/leads.js';
@@ -48,7 +48,7 @@ r.get('/', async (req, res) => {
        SUM(CASE WHEN status = 'Pending' AND due_date = ? THEN 1 ELSE 0 END) AS today,
        SUM(CASE WHEN status = 'Pending' AND due_date < ? THEN 1 ELSE 0 END) AS overdue,
        SUM(CASE WHEN status = 'Pending' AND due_date > ? THEN 1 ELSE 0 END) AS upcoming,
-       SUM(CASE WHEN status = 'Completed' AND substr(completed_at, 1, 10) >= ? THEN 1 ELSE 0 END) AS completed_week
+       SUM(CASE WHEN status = 'Completed' AND ${db.dialect.localDate('completed_at')} >= ? THEN 1 ELSE 0 END) AS completed_week
      FROM followups WHERE 1=1${sc.sql}`,
     [t, t, t, addDays(t, -7), ...sc.params],
   );
@@ -74,7 +74,7 @@ r.put('/:id', async (req, res) => {
   const f = await db.get('SELECT * FROM followups WHERE id = ?', [id]);
   if (!f) throw notFound('Follow-up');
   if (isScoped(req.user) && f.agent_id !== req.user.id) throw forbidden();
-  const data = parse(followupUpdateBody, req.body);
+  const data = parseEdit(followupUpdateBody, req.body);
   delete data.lead_id;
   if (req.user.role === 'sales') delete data.agent_id;
   const completing = data.status === 'Completed' && f.status !== 'Completed';

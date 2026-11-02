@@ -26,6 +26,12 @@ export interface Db {
   dialect: {
     /** Expression yielding 'YYYY-MM' for a date/datetime column. */
     month(column: string): string;
+    /**
+     * Local calendar day 'YYYY-MM-DD' of a UTC timestamp column (created_at, completed_at…), in the
+     * server's time zone. Timestamps are stored in UTC, so substr(created_at, 1, 10) would put
+     * anything from 00:00 to 05:30 IST on the previous day.
+     */
+    localDate(column: string): string;
   };
 }
 
@@ -117,6 +123,7 @@ export function createSqliteDb(file: string): Db {
     },
     dialect: {
       month: (column) => `substr(${column}, 1, 7)`,
+      localDate: (column) => `date(${column}, '${-new Date().getTimezoneOffset()} minutes')`,
     },
   };
   return db;

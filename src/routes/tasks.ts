@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { taskBody, taskListQuery } from '@estateflow/shared';
 import { db } from '../db/index.js';
 import { adminAppReadOnly, authorize, type AuthUser } from '../middleware/auth.js';
-import { HttpError, forbidden, idParam, likeParam, notFound, pageMeta, paging, parse, parseQuery } from '../utils/http.js';
+import { HttpError, forbidden, idParam, likeParam, notFound, pageMeta, paging, parse, parseQuery, parseEdit } from '../utils/http.js';
 import { addDays, nowIso, today } from '../utils/dates.js';
 import { notifyUsers } from '../services/activity.js';
 
@@ -86,7 +86,7 @@ r.put('/:id', async (req, res) => {
   const task = await db.get('SELECT * FROM tasks WHERE id = ?', [id]);
   if (!task) throw notFound('Task');
   if (mine(req.user.role) && task.assigned_to !== req.user.id && task.created_by !== req.user.id) throw forbidden();
-  const data = parse(taskBody.partial(), req.body);
+  const data = parseEdit(taskBody.partial(), req.body);
   if (mine(req.user.role)) delete data.assigned_to;
   await assertLinks(req.user, data.lead_id, data.customer_id, data.assigned_to);
   const completing = data.status === 'Completed' && task.status !== 'Completed';
